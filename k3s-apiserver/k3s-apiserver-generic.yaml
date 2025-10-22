@@ -1,0 +1,201 @@
+# K3s API Server for Development Testing
+# This provides a minimal K3s API server with API aggregation support
+# Used by various development environments
+
+services:
+  cert-provider:
+    image: alpine:latest
+    volumes:
+      - k3s-certs:/certs
+    environment:
+      # Comma-separated list of webhook operators that need certificates
+      # Format: service-name:namespace (namespace defaults to 'default' if omitted)
+      - WEBHOOK_OPERATORS=${WEBHOOK_OPERATORS:-grafana-servicemodel-operator:default}
+    command:
+      - sh
+      - -c
+      - |
+        echo "Setting up certificates for K3s API server..."
+        mkdir -p /certs/api-server-aggregation /certs/tls
+        
+        # Generate API server aggregation CA if it doesn't exist
+        if [ ! -f /certs/api-server-aggregation/apiserver-client-ca.pem ]; then
+          echo "Generating API server aggregation CA certificate..."
+          apk add --no-cache openssl
+          
+          # Generate CA key
+          openssl ecparam -genkey -name prime256v1 -out /certs/api-server-aggregation/apiserver-client-ca-key.pem
+          
+          # Generate CA certificate
+          openssl req -new -x509 -key /certs/api-server-aggregation/apiserver-client-ca-key.pem \
+            -out /certs/api-server-aggregation/apiserver-client-ca.pem -days 3650 \
+            -subj "/CN=Client-CA"
+            
+          # Generate client key
+          openssl ecparam -genkey -name prime256v1 -out /certs/api-server-aggregation/apiserver-client-key.pem
+          
+          # Generate client certificate signing request
+          openssl req -new -key /certs/api-server-aggregation/apiserver-client-key.pem \
+            -out /certs/api-server-aggregation/apiserver-client.csr \
+            -subj "/CN=front-proxy-client"
+            
+          # Sign client certificate with CA
+          openssl x509 -req -in /certs/api-server-aggregation/apiserver-client.csr \
+            -CA /certs/api-server-aggregation/apiserver-client-ca.pem \
+            -CAkey /certs/api-server-aggregation/apiserver-client-ca-key.pem \
+            -out /certs/api-server-aggregation/apiserver-client.pem \
+            -days 365 -CAcreateserial
+            
+          rm /certs/api-server-aggregation/apiserver-client.csr
+        fi
+        
+        # Generate TLS certificates for webhook operators
+        if [ ! -f /certs/tls/tls.crt ]; then
+          echo "Generating TLS certificates for webhook operators..."
+          apk add --no-cache openssl
+          
+          # Parse webhook operators and build Subject Alternative Names
+          WEBHOOK_OPERATORS=${WEBHOOK_OPERATORS:-grafana-servicemodel-operator:default}
+          echo "Webhook operators: $WEBHOOK_OPERATORS"
+          
+          # Start building SAN list
+          SAN_LIST=""
+          
+          # Process each operator
+          IFS=',' read -ra OPERATORS <<< "$WEBHOOK_OPERATORS"
+          for operator in "${OPERATORS[@]}"; do
+            # Split operator:namespace (default to 'default' namespace)
+            if [[ "$operator" == *:* ]]; then
+              OP_NAME="${operator%:*}"
+              OP_NAMESPACE="${operator#*:}"
+            else
+              OP_NAME="$operator"
+              OP_NAMESPACE="default"
+            fi
+            
+            echo "Processing operator: $OP_NAME in namespace: $OP_NAMESPACE"
+            
+            # Add DNS names for this operator
+            if [ -n "$SAN_LIST" ]; then
+              SAN_LIST="$SAN_LIST,"
+            fi
+            SAN_LIST="${SAN_LIST}DNS:${OP_NAME}"
+            SAN_LIST="$SAN_LIST,DNS:${OP_NAME}.${OP_NAMESPACE}"
+            SAN_LIST="$SAN_LIST,DNS:${OP_NAME}.${OP_NAMESPACE}.svc"
+            SAN_LIST="$SAN_LIST,DNS:${OP_NAME}.${OP_NAMESPACE}.svc.cluster.local"
+          done
+          
+          # Add common SAN entries
+          SAN_LIST="$SAN_LIST,DNS:localhost,IP:127.0.0.1"
+          
+          echo "Generated SAN list: $SAN_LIST"
+          
+          # Use first operator as the primary CN
+          FIRST_OPERATOR="${OPERATORS[0]}"
+          if [[ "$FIRST_OPERATOR" == *:* ]]; then
+            PRIMARY_CN="${FIRST_OPERATOR%:*}"
+          else
+            PRIMARY_CN="$FIRST_OPERATOR"
+          fi
+          
+          openssl req -x509 -newkey rsa:4096 -keyout /certs/tls/tls.key -out /certs/tls/tls.crt \
+            -days 365 -nodes -subj "/CN=$PRIMARY_CN" \
+            -addext "subjectAltName=$SAN_LIST"
+        fi
+        
+        echo "Certificate setup complete. Listing contents of /certs/api-server-aggregation/ and /certs/tls/"
+        ls -la /certs/api-server-aggregation/
+        ls -la /certs/tls/
+    restart: "no"
+
+  traefik:
+    image: traefik:v3.0
+    container_name: traefik-webhook-proxy
+    ports:
+      - "443:443"   # HTTPS for webhook traffic
+      - "8080:8080" # Traefik dashboard
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro # Docker provider
+      - k3s-certs:/certs:ro # Access to webhook certificates
+      - k3s-certs:/etc/traefik/certs:ro # Mount certificates for Traefik TLS
+    environment:
+      # Same webhook operators list for network aliases
+      - WEBHOOK_OPERATORS=${WEBHOOK_OPERATORS:-grafana-servicemodel-operator:default}
+    depends_on:
+      cert-provider:
+        condition: service_completed_successfully
+    entrypoint: ["/bin/sh"]
+    command:
+      - "-c"
+      - |
+        # Create dynamic TLS configuration using the existing webhook certificates
+        mkdir -p /etc/traefik/dynamic
+        cat > /etc/traefik/dynamic/tls.yml << 'EOF'
+        tls:
+          certificates:
+            - certFile: /etc/traefik/certs/tls/tls.crt
+              keyFile: /etc/traefik/certs/tls/tls.key
+              stores:
+                - default
+          stores:
+            default:
+              defaultCertificate:
+                certFile: /etc/traefik/certs/tls/tls.crt
+                keyFile: /etc/traefik/certs/tls/tls.key
+        EOF
+        
+        echo "Starting Traefik with webhook proxy configuration..."
+        exec traefik \
+          --log.level=INFO \
+          --api.dashboard=true \
+          --api.insecure=true \
+          --providers.docker=true \
+          --providers.docker.exposedbydefault=false \
+          --providers.docker.network=docker-compose_default \
+          --entrypoints.websecure.address=:443 \
+          --serverstransport.insecureskipverify=true \
+          --providers.file.directory=/etc/traefik/dynamic \
+          --providers.file.watch=true
+    labels:
+      - traefik.enable=false  # Don't proxy Traefik itself
+    networks:
+      default:
+        aliases: []  # Will be populated dynamically by Docker Compose override
+
+  k3s-apiserver:
+    image: rancher/k3s:latest
+    hostname: k3s-apiserver
+    privileged: true
+    depends_on:
+      cert-provider:
+        condition: service_completed_successfully
+    command:
+      - server
+      - --disable-scheduler
+      - --disable-controller-manager
+      - --disable=coredns
+      - --disable=servicelb
+      - --disable=traefik
+      - --disable=local-storage
+      - --disable=metrics-server
+      - --disable-network-policy
+      - --disable-helm-controller
+      - --disable-cloud-controller
+      - --tls-san=127.0.0.1
+      - --write-kubeconfig-mode=644
+      - --write-kubeconfig=/output/kubeconfig.yaml
+      # API aggregation support
+      - --kube-apiserver-arg=requestheader-client-ca-file=/etc/kubernetes/pki/api-server-aggregation/apiserver-client-ca.pem
+      - --kube-apiserver-arg=requestheader-allowed-names=front-proxy-client,My Client
+      # Disable built-in traefik to avoid conflicts with our custom Traefik
+      - --disable=traefik
+    ports:
+      - "6443:6443"  # Kubernetes API server port
+    volumes:
+      - k3s-data:/var/lib/rancher/k3s # Persistence for K3s data (including etcd)
+      - k3s-certs:/etc/kubernetes/pki:ro # Mount certificates from shared volume
+      - ./output:/output # Mount output directory for kubeconfig
+
+volumes:
+  k3s-data:
+  k3s-certs:

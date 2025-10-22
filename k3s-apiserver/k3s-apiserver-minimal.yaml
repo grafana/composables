@@ -1,0 +1,87 @@
+# K3s API Server for Development Testing
+# This provides a minimal K3s API server with API aggregation support
+# Used by various development environments
+# Webhook certificates should be managed by individual operator services
+
+services:
+  cert-provider:
+    image: alpine:latest
+    volumes:
+      - k3s-certs:/certs
+    command:
+      - sh
+      - -c
+      - |
+        echo "Setting up certificates for K3s API server..."
+        mkdir -p /certs/api-server-aggregation
+        
+        # Generate API server aggregation CA if it doesn't exist
+        if [ ! -f /certs/api-server-aggregation/apiserver-client-ca.pem ]; then
+          echo "Generating API server aggregation CA certificate..."
+          apk add --no-cache openssl
+          
+          # Generate CA key
+          openssl ecparam -genkey -name prime256v1 -out /certs/api-server-aggregation/apiserver-client-ca-key.pem
+          
+          # Generate CA certificate
+          openssl req -new -x509 -key /certs/api-server-aggregation/apiserver-client-ca-key.pem \
+            -out /certs/api-server-aggregation/apiserver-client-ca.pem -days 3650 \
+            -subj "/CN=Client-CA"
+            
+          # Generate client key
+          openssl ecparam -genkey -name prime256v1 -out /certs/api-server-aggregation/apiserver-client-key.pem
+          
+          # Generate client certificate signing request
+          openssl req -new -key /certs/api-server-aggregation/apiserver-client-key.pem \
+            -out /certs/api-server-aggregation/apiserver-client.csr \
+            -subj "/CN=front-proxy-client"
+            
+          # Sign client certificate with CA
+          openssl x509 -req -in /certs/api-server-aggregation/apiserver-client.csr \
+            -CA /certs/api-server-aggregation/apiserver-client-ca.pem \
+            -CAkey /certs/api-server-aggregation/apiserver-client-ca-key.pem \
+            -out /certs/api-server-aggregation/apiserver-client.pem \
+            -days 365 -CAcreateserial
+            
+          rm /certs/api-server-aggregation/apiserver-client.csr
+        fi
+        
+        echo "Certificate setup complete. Listing contents of /certs/api-server-aggregation/"
+        ls -la /certs/api-server-aggregation/
+    restart: "no"
+
+  k3s-apiserver:
+    image: rancher/k3s:latest
+    hostname: k3s-apiserver
+    privileged: true
+    depends_on:
+      cert-provider:
+        condition: service_completed_successfully
+    command:
+      - server
+      - --disable-scheduler
+      - --disable-controller-manager
+      - --disable=coredns
+      - --disable=servicelb
+      - --disable=traefik
+      - --disable=local-storage
+      - --disable=metrics-server
+      - --disable-network-policy
+      - --disable-helm-controller
+      - --disable-cloud-controller
+      - --tls-san=127.0.0.1
+      - --write-kubeconfig-mode=644
+      - --write-kubeconfig=/output/kubeconfig.yaml
+      # API aggregation support
+      - --kube-apiserver-arg=requestheader-client-ca-file=/etc/kubernetes/pki/api-server-aggregation/apiserver-client-ca.pem
+      - --kube-apiserver-arg=requestheader-allowed-names=front-proxy-client,My Client
+    ports:
+      - "6443:6443"  # Kubernetes API server port
+    volumes:
+      - k3s-data:/var/lib/rancher/k3s # Persistence for K3s data (including etcd)
+      - k3s-certs:/etc/kubernetes/pki:ro # Mount certificates from shared volume
+      - ./output:/output # Mount output directory for kubeconfig
+
+volumes:
+  k3s-data:
+  k3s-certs:
