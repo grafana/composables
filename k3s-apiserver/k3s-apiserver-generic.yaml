@@ -55,52 +55,52 @@ services:
           apk add --no-cache openssl
           
           # Parse webhook operators and build Subject Alternative Names
-          WEBHOOK_OPERATORS=${WEBHOOK_OPERATORS:-grafana-servicemodel-operator:default}
-          echo "Webhook operators: $WEBHOOK_OPERATORS"
+          WEBHOOK_OPERATORS=$${WEBHOOK_OPERATORS:-grafana-servicemodel-operator:default}
+          echo "Webhook operators: $$WEBHOOK_OPERATORS"
           
           # Start building SAN list
           SAN_LIST=""
           
           # Process each operator
-          IFS=',' read -ra OPERATORS <<< "$WEBHOOK_OPERATORS"
-          for operator in "${OPERATORS[@]}"; do
+          OPERATORS=$$(echo "$$WEBHOOK_OPERATORS" | tr ',' ' ')
+          for operator in $$OPERATORS; do
             # Split operator:namespace (default to 'default' namespace)
-            if [[ "$operator" == *:* ]]; then
-              OP_NAME="${operator%:*}"
-              OP_NAMESPACE="${operator#*:}"
+            if [[ "$$operator" == *:* ]]; then
+              OP_NAME="$${operator%:*}"
+              OP_NAMESPACE="$${operator#*:}"
             else
-              OP_NAME="$operator"
+              OP_NAME="$$operator"
               OP_NAMESPACE="default"
             fi
             
-            echo "Processing operator: $OP_NAME in namespace: $OP_NAMESPACE"
+            echo "Processing operator: $$OP_NAME in namespace: $$OP_NAMESPACE"
             
             # Add DNS names for this operator
-            if [ -n "$SAN_LIST" ]; then
-              SAN_LIST="$SAN_LIST,"
+            if [ -n "$$SAN_LIST" ]; then
+              SAN_LIST="$$SAN_LIST,"
             fi
-            SAN_LIST="${SAN_LIST}DNS:${OP_NAME}"
-            SAN_LIST="$SAN_LIST,DNS:${OP_NAME}.${OP_NAMESPACE}"
-            SAN_LIST="$SAN_LIST,DNS:${OP_NAME}.${OP_NAMESPACE}.svc"
-            SAN_LIST="$SAN_LIST,DNS:${OP_NAME}.${OP_NAMESPACE}.svc.cluster.local"
+            SAN_LIST="$${SAN_LIST}DNS:$$OP_NAME"
+            SAN_LIST="$$SAN_LIST,DNS:$$OP_NAME.$$OP_NAMESPACE"
+            SAN_LIST="$$SAN_LIST,DNS:$$OP_NAME.$$OP_NAMESPACE.svc"
+            SAN_LIST="$$SAN_LIST,DNS:$$OP_NAME.$$OP_NAMESPACE.svc.cluster.local"
           done
           
           # Add common SAN entries
-          SAN_LIST="$SAN_LIST,DNS:localhost,IP:127.0.0.1"
+          SAN_LIST="$$SAN_LIST,DNS:localhost,IP:127.0.0.1"
           
-          echo "Generated SAN list: $SAN_LIST"
+          echo "Generated SAN list: $$SAN_LIST"
           
           # Use first operator as the primary CN
-          FIRST_OPERATOR="${OPERATORS[0]}"
-          if [[ "$FIRST_OPERATOR" == *:* ]]; then
-            PRIMARY_CN="${FIRST_OPERATOR%:*}"
+          FIRST_OPERATOR=$$(echo "$$OPERATORS" | cut -d' ' -f1)
+          if [[ "$$FIRST_OPERATOR" == *:* ]]; then
+            PRIMARY_CN="$${FIRST_OPERATOR%:*}"
           else
-            PRIMARY_CN="$FIRST_OPERATOR"
+            PRIMARY_CN="$$FIRST_OPERATOR"
           fi
           
           openssl req -x509 -newkey rsa:4096 -keyout /certs/tls/tls.key -out /certs/tls/tls.crt \
-            -days 365 -nodes -subj "/CN=$PRIMARY_CN" \
-            -addext "subjectAltName=$SAN_LIST"
+            -days 365 -nodes -subj "/CN=$$PRIMARY_CN" \
+            -addext "subjectAltName=$$SAN_LIST"
         fi
         
         echo "Certificate setup complete. Listing contents of /certs/api-server-aggregation/ and /certs/tls/"
@@ -160,7 +160,8 @@ services:
       - traefik.enable=false  # Don't proxy Traefik itself
     networks:
       default:
-        aliases: []  # Will be populated dynamically by Docker Compose override
+        aliases: 
+          - grafana-servicemodel-operator.default.svc.cluster.local
 
   k3s-apiserver:
     image: rancher/k3s:latest
