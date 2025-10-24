@@ -1,0 +1,13 @@
+v1alpha1.extension_repo(name='grafana-tilt-extensions', url='file:///Users/bcotton/projects/apiserver-devenv-testing/tilt-extensions')
+v1alpha1.extension(name='merge_dicts', repo_name='grafana-tilt-extensions', repo_path='merge_dicts')
+
+load('ext://merge_dicts', 'merge_dicts')
+
+def compose_file(file='grafana.yaml'):
+  return read_yaml(os.path.dirname(__file__) + '/' + file)
+
+def merge_compose_file(inbound_compose_file=()):
+    return merge_dicts(compose_file(), inbound_compose_file)
+
+print('hello from k3s-grafana')
+
