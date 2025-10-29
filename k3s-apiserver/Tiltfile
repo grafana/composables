@@ -9,5 +9,14 @@ def compose_file(file='k3s-apiserver-generic.yaml'):
 def merge_compose_file(inbound_compose_file=()):
     return merge_dicts(compose_file(), inbound_compose_file)
 
-print('hello from k3s-apiserver')
+# protocol for interacting with a plugin:
+# 1. pre hook - pass in the composee after it has been merged with the previous plugins - optional
+# 2. merge hook - merge the compose file with the plugin's compose file - required
+# 3. validate hook - validate the mergeed compose file after all otheer plugins have had a chance to merge their compose files - optional
+
+
+# The next lines can tell if we are locaded from 'tilt up' or from a `load()` call somewhere else
+# if we are loaded from the command line directly, then start all the things
+if __file__ == config.main_path:
+    docker_compose(encode_yaml(merge_compose_file()))
 

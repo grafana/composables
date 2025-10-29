@@ -9,5 +9,6 @@ def compose_file(file='grafana.yaml'):
 def merge_compose_file(inbound_compose_file=()):
     return merge_dicts(compose_file(), inbound_compose_file)
 
-print('hello from k3s-grafana')
+if __file__ == config.main_path:
+  print('hello from k3s-grafana')
 
