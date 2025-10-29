@@ -3,11 +3,18 @@ v1alpha1.extension(name='merge_dicts', repo_name='grafana-tilt-extensions', repo
 
 load('ext://merge_dicts', 'merge_dicts')
 
-def compose_file(file='k3s-apiserver-generic.yaml'):
-  return read_yaml(os.path.dirname(__file__) + '/' + file)
+def compose_file_path(file='k3s-apiserver-generic.yaml'):
+  return os.path.dirname(__file__) + '/' + file
+
+def compose_file_contents(file='k3s-apiserver-generic.yaml'):
+  return read_yaml(compose_file_path(file))
 
 def merge_compose_file(inbound_compose_file=()):
-    return merge_dicts(compose_file(), inbound_compose_file)
+  includes = inbound_compose_file['include'] if 'includes' in inbound_compose_file else []
+  includes.append(compose_file_path())
+  inbound_compose_file['include'] = includes
+  return inbound_compose_file
+    # return merge_dicts(compose_file_contents(), inbound_compose_file)
 
 # protocol for interacting with a plugin:
 # 1. pre hook - pass in the composee after it has been merged with the previous plugins - optional
