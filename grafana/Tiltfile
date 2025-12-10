@@ -1,14 +1,15 @@
-v1alpha1.extension_repo(name='grafana-tilt-extensions', url='file:///Users/bcotton/projects/apiserver-devenv-testing/tilt-extensions')
-v1alpha1.extension(name='merge_dicts', repo_name='grafana-tilt-extensions', repo_path='merge_dicts')
+# Grafana Tilt Extension
+# Exposes get_compose_path() for include-based compose assembly
 
-load('ext://merge_dicts', 'merge_dicts')
+def get_compose_path(file='grafana.yaml'):
+    """Returns the absolute path to the compose file for this component."""
+    return os.path.dirname(__file__) + '/' + file
 
-def compose_file(file='grafana.yaml'):
-  return read_yaml(os.path.dirname(__file__) + '/' + file)
+def compose_file_contents(file='grafana.yaml'):
+    """Returns the parsed YAML contents of the compose file."""
+    return read_yaml(get_compose_path(file))
 
-def merge_compose_file(inbound_compose_file=()):
-    return merge_dicts(compose_file(), inbound_compose_file)
-
+# The next lines can tell if we are loaded from 'tilt up' or from a `load()` call somewhere else
+# if we are loaded from the command line directly, then start all the things
 if __file__ == config.main_path:
-  print('hello from k3s-grafana')
-
+    docker_compose(get_compose_path())

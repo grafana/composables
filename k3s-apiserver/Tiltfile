@@ -1,29 +1,15 @@
-v1alpha1.extension_repo(name='grafana-tilt-extensions', url='file:///Users/bcotton/projects/apiserver-devenv-testing/tilt-extensions')
-v1alpha1.extension(name='merge_dicts', repo_name='grafana-tilt-extensions', repo_path='merge_dicts')
+# K3s API Server Tilt Extension
+# Exposes get_compose_path() for include-based compose assembly
 
-load('ext://merge_dicts', 'merge_dicts')
-
-def compose_file_path(file='k3s-apiserver-generic.yaml'):
-  return os.path.dirname(__file__) + '/' + file
+def get_compose_path(file='k3s-apiserver-generic.yaml'):
+    """Returns the absolute path to the compose file for this component."""
+    return os.path.dirname(__file__) + '/' + file
 
 def compose_file_contents(file='k3s-apiserver-generic.yaml'):
-  return read_yaml(compose_file_path(file))
+    """Returns the parsed YAML contents of the compose file."""
+    return read_yaml(get_compose_path(file))
 
-def merge_compose_file(inbound_compose_file=()):
-  includes = inbound_compose_file['include'] if 'includes' in inbound_compose_file else []
-  includes.append(compose_file_path())
-  inbound_compose_file['include'] = includes
-  return inbound_compose_file
-    # return merge_dicts(compose_file_contents(), inbound_compose_file)
-
-# protocol for interacting with a plugin:
-# 1. pre hook - pass in the composee after it has been merged with the previous plugins - optional
-# 2. merge hook - merge the compose file with the plugin's compose file - required
-# 3. validate hook - validate the mergeed compose file after all otheer plugins have had a chance to merge their compose files - optional
-
-
-# The next lines can tell if we are locaded from 'tilt up' or from a `load()` call somewhere else
+# The next lines can tell if we are loaded from 'tilt up' or from a `load()` call somewhere else
 # if we are loaded from the command line directly, then start all the things
 if __file__ == config.main_path:
-    docker_compose(encode_yaml(merge_compose_file()))
-
+    docker_compose(get_compose_path())
