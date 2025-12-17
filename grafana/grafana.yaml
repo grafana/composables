@@ -59,7 +59,7 @@ services:
       # API Server configuration for Kubernetes aggregation
       GF_GRAFANA_APISERVER_PROXY_CLIENT_CERT_FILE: /etc/kubernetes/pki/api-server-aggregation/apiserver-client.pem
       GF_GRAFANA_APISERVER_PROXY_CLIENT_KEY_FILE: /etc/kubernetes/pki/api-server-aggregation/apiserver-client-key.pem
-      GF_GRAFANA_APISERVER_REMOTE_SERVICES_FILE: /etc/kubernetes/pki/aggregator-config.yaml
+      # GF_GRAFANA_APISERVER_REMOTE_SERVICES_FILE: /etc/kubernetes/pki/aggregator-config.yaml
 
     volumes:
       - grafana-data:/var/lib/grafana

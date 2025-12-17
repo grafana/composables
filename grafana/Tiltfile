@@ -1,5 +1,9 @@
 # Grafana Tilt Extension
-# Exposes get_compose_path() for include-based compose assembly
+# Provides Grafana for development.
+#
+# Exports:
+#   get_compose_path() - Returns path to the compose file
+#   on_transform_compose() - Callback to configure grafana based on loaded dependencies
 
 def get_compose_path(file='grafana.yaml'):
     """Returns the absolute path to the compose file for this component."""
@@ -9,7 +13,92 @@ def compose_file_contents(file='grafana.yaml'):
     """Returns the parsed YAML contents of the compose file."""
     return read_yaml(get_compose_path(file))
 
-# The next lines can tell if we are loaded from 'tilt up' or from a `load()` call somewhere else
-# if we are loaded from the command line directly, then start all the things
+# ============================================================================
+# Exported Callback - Auto-discovered by compose_composer
+# ============================================================================
+
+def on_transform_compose(dep, compose_yaml, context):
+    """
+    Called for each compose file during assembly.
+    
+    Grafana uses this callback to configure itself based on what other
+    dependencies are loaded. For example, if k3s-apiserver is loaded,
+    grafana will add a dependency on it and mount the kubeconfig.
+    """
+    # Only modify our own compose file
+    if dep['name'] != 'grafana':
+        return None
+    
+    services = compose_yaml.get('services', {})
+    grafana_svc = services.get('grafana')
+    
+    if not grafana_svc:
+        return None
+    
+    modified = False
+    
+    # Check if k3s-apiserver is being loaded
+    if 'k3s-apiserver' in context.get('loaded_dep_names', []):
+        # Add depends_on for k3s-apiserver
+        depends = grafana_svc.get('depends_on', [])
+        if type(depends) == 'list':
+            if 'k3s-apiserver' not in depends:
+                grafana_svc['depends_on'] = depends + ['k3s-apiserver']
+                modified = True
+        else:
+            # depends_on can also be a dict with condition
+            if 'k3s-apiserver' not in depends:
+                depends['k3s-apiserver'] = {'condition': 'service_healthy'}
+                grafana_svc['depends_on'] = depends
+                modified = True
+        
+        # Get kubeconfig path from k3s-apiserver extension
+        k3s_symbols = context.get('loaded_symbols', {}).get('k3s-apiserver', {})
+        get_kubeconfig = k3s_symbols.get('get_kubeconfig_path')
+        
+        if get_kubeconfig:
+            kubeconfig_src = get_kubeconfig()
+            kubeconfig_mount = kubeconfig_src + ':/etc/grafana/kubeconfig.yaml:ro'
+            
+            volumes = grafana_svc.get('volumes', [])
+            # Check if already mounted (avoid duplicates)
+            already_mounted = False
+            for v in volumes:
+                if '/etc/grafana/kubeconfig.yaml' in str(v):
+                    already_mounted = True
+                    break
+            
+            if not already_mounted:
+                grafana_svc['volumes'] = volumes + [kubeconfig_mount]
+                modified = True
+        
+        # Add environment variable pointing to kubeconfig
+        env = grafana_svc.get('environment', {})
+        if type(env) == 'list':
+            # Convert list format to dict
+            env_dict = {}
+            for e in env:
+                if '=' in str(e):
+                    parts = str(e).split('=', 1)
+                    env_dict[parts[0]] = parts[1]
+            env = env_dict
+        
+        if env.get('KUBECONFIG') != '/etc/grafana/kubeconfig.yaml':
+            env['KUBECONFIG'] = '/etc/grafana/kubeconfig.yaml'
+            grafana_svc['environment'] = env
+            modified = True
+        
+        if modified:
+            print("    [grafana] Configured for k3s-apiserver (depends_on, kubeconfig mount, env)")
+    
+    if modified:
+        return compose_yaml
+    return None
+
+# ============================================================================
+# Standalone Mode
+# ============================================================================
+
+# If loaded directly via 'tilt up', run the compose file
 if __file__ == config.main_path:
     docker_compose(get_compose_path())
