@@ -3,7 +3,8 @@
 #
 # Exports:
 #   get_compose_path() - Returns path to the compose file
-#   on_transform_compose() - Callback to configure grafana based on loaded dependencies
+#   get_wire_when()    - Conditional wiring rules
+#   get_provides()     - What this extension provides (for documentation)
 
 def get_compose_path(file='grafana.yaml'):
     """Returns the absolute path to the compose file for this component."""
@@ -14,86 +15,83 @@ def compose_file_contents(file='grafana.yaml'):
     return read_yaml(get_compose_path(file))
 
 # ============================================================================
-# Exported Callback - Auto-discovered by compose_composer
+# Declarative Wiring - Replaces callback-based approach
 # ============================================================================
 
-def on_transform_compose(dep, compose_yaml, context):
+def get_wire_when():
     """
-    Called for each compose file during assembly.
+    Declare conditional wiring rules.
     
-    Grafana uses this callback to configure itself based on what other
-    dependencies are loaded. For example, if k3s-apiserver is loaded,
-    grafana will add a dependency on it and mount the kubeconfig.
+    When a trigger dependency is loaded, the specified modifications
+    are applied to services in this extension's compose file.
+    
+    This is symmetric - the same wiring happens regardless of which
+    plugin is the orchestrator.
     """
-    # Only modify our own compose file
-    if dep['name'] != 'grafana':
-        return None
-    
-    services = compose_yaml.get('services', {})
-    grafana_svc = services.get('grafana')
-    
-    if not grafana_svc:
-        return None
-    
-    modified = False
-    
-    # Check if k3s-apiserver is being loaded
-    if 'k3s-apiserver' in context.get('loaded_dep_names', []):
-        # Add depends_on for k3s-apiserver
-        depends = grafana_svc.get('depends_on', [])
-        if type(depends) == 'list':
-            if 'k3s-apiserver' not in depends:
-                grafana_svc['depends_on'] = depends + ['k3s-apiserver']
-                modified = True
-        else:
-            # depends_on can also be a dict with condition
-            if 'k3s-apiserver' not in depends:
-                depends['k3s-apiserver'] = {'condition': 'service_healthy'}
-                grafana_svc['depends_on'] = depends
-                modified = True
+    return {
+        # When mysql is loaded, wire grafana to use it as database
+        'mysql': {
+            'services': {
+                'grafana': {
+                    # Add service dependency
+                    'depends_on': ['db'],
+                    
+                    # Configure database connection
+                    'environment': {
+                        'GF_DATABASE_TYPE': 'mysql',
+                        'GF_DATABASE_HOST': 'db:3306',
+                        'GF_DATABASE_NAME': 'grafana',
+                        'GF_DATABASE_USER': 'user',
+                        'GF_DATABASE_PASSWORD': 'pass',
+                        'GF_SESSION_PROVIDER': 'mysql',
+                        'GF_SESSION_PROVIDER_CONFIG': 'user:pass@tcp(db:3306)/grafana',
+                    },
+                },
+            },
+        },
         
-        # Get kubeconfig path from k3s-apiserver extension
-        k3s_symbols = context.get('loaded_symbols', {}).get('k3s-apiserver', {})
-        get_kubeconfig = k3s_symbols.get('get_kubeconfig_path')
-        
-        if get_kubeconfig:
-            kubeconfig_src = get_kubeconfig()
-            kubeconfig_mount = kubeconfig_src + ':/etc/grafana/kubeconfig.yaml:ro'
-            
-            volumes = grafana_svc.get('volumes', [])
-            # Check if already mounted (avoid duplicates)
-            already_mounted = False
-            for v in volumes:
-                if '/etc/grafana/kubeconfig.yaml' in str(v):
-                    already_mounted = True
-                    break
-            
-            if not already_mounted:
-                grafana_svc['volumes'] = volumes + [kubeconfig_mount]
-                modified = True
-        
-        # Add environment variable pointing to kubeconfig
-        env = grafana_svc.get('environment', {})
-        if type(env) == 'list':
-            # Convert list format to dict
-            env_dict = {}
-            for e in env:
-                if '=' in str(e):
-                    parts = str(e).split('=', 1)
-                    env_dict[parts[0]] = parts[1]
-            env = env_dict
-        
-        if env.get('KUBECONFIG') != '/etc/grafana/kubeconfig.yaml':
-            env['KUBECONFIG'] = '/etc/grafana/kubeconfig.yaml'
-            grafana_svc['environment'] = env
-            modified = True
-        
-        if modified:
-            print("    [grafana] Configured for k3s-apiserver (depends_on, kubeconfig mount, env)")
-    
-    if modified:
-        return compose_yaml
-    return None
+        # When k3s-apiserver is loaded, wire grafana to use it
+        'k3s-apiserver': {
+            'services': {
+                'grafana': {
+                    # Add service dependency
+                    'depends_on': ['k3s-apiserver'],
+                    
+                    # Mount the shared certificates volume
+                    'volumes': [
+                        'k3s-certs:/etc/kubernetes/pki:ro',
+                    ],
+                    
+                    # Set environment variables
+                    'environment': {
+                        'KUBECONFIG': '/etc/grafana/kubeconfig.yaml',
+                        'GF_GRAFANA_APISERVER_PROXY_CLIENT_CERT_FILE': '/etc/kubernetes/pki/api-server-aggregation/apiserver-client.pem',
+                        'GF_GRAFANA_APISERVER_PROXY_CLIENT_KEY_FILE': '/etc/kubernetes/pki/api-server-aggregation/apiserver-client-key.pem',
+                        # 'GF_GRAFANA_APISERVER_REMOTE_SERVICES_FILE': '/etc/kubernetes/pki/aggregator-config.yaml',
+
+                    },
+                },
+            },
+        },
+    }
+
+def get_provides():
+    """
+    Declare what this extension provides.
+    Used for documentation and discoverability.
+    """
+    return {
+        'services': [
+            {
+                'name': 'grafana',
+                'description': 'Grafana Enterprise',
+                'ports': {'3000': 'Web UI'},
+            },
+        ],
+        'volumes': [
+            {'name': 'grafana-data', 'description': 'Grafana persistent data'},
+        ],
+    }
 
 # ============================================================================
 # Standalone Mode

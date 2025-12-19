@@ -1,0 +1,24 @@
+# MySQL Database Service for Development
+# Provides MySQL backend for Grafana and other services
+# Used by various development environments
+
+services:
+  db:
+    image: mysql:8
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_DATABASE: grafana
+      MYSQL_USER: user
+      MYSQL_PASSWORD: pass
+    ports:
+      - '3306:3306'
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: "mysql -uuser -ppass grafana -e 'select 1'"
+      timeout: 1s
+      retries: 10
+
+volumes:
+  mysql-data:
+

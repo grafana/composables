@@ -1,24 +1,9 @@
-# Grafana and Database Services for Development
-# This provides Grafana with MySQL backend and API server aggregation support
+# Grafana Service for Development
+# This provides Grafana with API server aggregation support
+# Database is provided separately by the mysql extension
 # Used by various development environments
 
 services:
-  db:
-    image: mysql:8
-    environment:
-      MYSQL_ROOT_PASSWORD: rootpass
-      MYSQL_DATABASE: grafana
-      MYSQL_USER: user
-      MYSQL_PASSWORD: pass
-    ports:
-      - '3306:3306'
-    volumes:
-      - mysql-data:/var/lib/mysql
-    healthcheck:
-      test: "mysql -uuser -ppass grafana -e 'select 1'"
-      timeout: 1s
-      retries: 10
-
   grafana:
     image: grafana/grafana-enterprise:latest
     container_name: 'grafana'
@@ -26,50 +11,27 @@ services:
     ports:
       - '3000:3000'
     environment:
-
       GF_DEFAULT_APP_MODE: development
       # Authentication settings
       GF_AUTH_ANONYMOUS_ENABLED: 'true'
       GF_AUTH_MANAGED_SERVICE_ACCOUNTS_ENABLED: true
       
-      # Database configuration
-      GF_DATABASE_TYPE: mysql
-      GF_DATABASE_HOST: 'db:3306'
-      GF_DATABASE_NAME: grafana
-      GF_DATABASE_USER: user
-      GF_DATABASE_PASSWORD: pass
-      
       # Server settings
       GF_SERVER_ROOT_URL: http://localhost:3000
-      
-      # Session management
-      GF_SESSION_PROVIDER: mysql
-      GF_SESSION_PROVIDER_CONFIG: 'user:pass@tcp(db:3306)/grafana'
       
       # Feature toggles for service model integration
       GF_FEATURE_TOGGLES_ENABLE: kubernetesDashboards,kubernetesDashboardsAPI,grafanaAPIServerEnsureKubectlAccess,kubernetesAggregator
       
       # Logging
       GF_LOG_LEVEL: info
-      GF_LOG_FILTERS: grafana-apiserver:debug,dashboards-k8s-client:warn
+      GF_LOG_FILTERS: grafana-apiserver:info,dashboards-k8s-client:warn
       
       # Plugin settings
       GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS: grafana-servicemodel-plugin
-      
-      # API Server configuration for Kubernetes aggregation
-      GF_GRAFANA_APISERVER_PROXY_CLIENT_CERT_FILE: /etc/kubernetes/pki/api-server-aggregation/apiserver-client.pem
-      GF_GRAFANA_APISERVER_PROXY_CLIENT_KEY_FILE: /etc/kubernetes/pki/api-server-aggregation/apiserver-client-key.pem
-      # GF_GRAFANA_APISERVER_REMOTE_SERVICES_FILE: /etc/kubernetes/pki/aggregator-config.yaml
 
     volumes:
       - grafana-data:/var/lib/grafana
-      - k3s-certs:/etc/kubernetes/pki:ro # Mount certificates from shared volume
-    depends_on:
-      db:
-        condition: service_healthy
     restart: unless-stopped
 
 volumes:
-  mysql-data:
   grafana-data:
-  k3s-certs:  # Shared volume for certificates
