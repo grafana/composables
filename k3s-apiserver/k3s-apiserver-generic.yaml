@@ -183,6 +183,7 @@ services:
       - --disable-helm-controller
       - --disable-cloud-controller
       - --tls-san=127.0.0.1
+      - --tls-san=k3s-apiserver
       - --write-kubeconfig-mode=644
       - --write-kubeconfig=/output/kubeconfig.yaml
       # API aggregation support
@@ -195,8 +196,84 @@ services:
     volumes:
       - k3s-data:/var/lib/rancher/k3s # Persistence for K3s data (including etcd)
       - k3s-certs:/etc/kubernetes/pki:ro # Mount certificates from shared volume
-      - ./output:/output # Mount output directory for kubeconfig
+      - k3s-output:/output # Shared volume for kubeconfig (accessible by other containers)
+
+  # Sync kubeconfig to local filesystem for local kubectl access
+  kubeconfig-sync:
+    image: alpine:latest
+    depends_on:
+      - k3s-apiserver
+    volumes:
+      - k3s-output:/output:ro
+      - ./output:/output-local
+    entrypoint: ["/bin/sh"]
+    command:
+      - "-c"
+      - |
+        echo "Waiting for kubeconfig to be generated..."
+        while [ ! -f /output/kubeconfig.yaml ]; do
+          sleep 1
+        done
+        echo "Copying kubeconfig to local filesystem..."
+        cp /output/kubeconfig.yaml /output-local/kubeconfig.yaml
+        echo "Kubeconfig synced to ./output/kubeconfig.yaml"
+    restart: "no"
+
+  # Generic CRD loader - loads Custom Resource Definitions into k3s
+  # CRD paths are mounted at /crds/* by orchestrators via compose_composer 'crds' key
+  crd-loader:
+    image: bitnami/kubectl:latest
+    depends_on:
+      - k3s-apiserver
+    volumes:
+      - k3s-output:/output:ro
+      # Additional /crds/* mounts are added dynamically by compose_composer
+      # when orchestrators specify 'crds' in their dependency definitions
+    entrypoint: ["/bin/sh"]
+    command:
+      - "-c"
+      - |
+        echo 'CRD Loader starting...'
+        
+        # Check if any CRDs are mounted
+        if [ ! -d /crds ] || [ -z "$$(ls -A /crds 2>/dev/null)" ]; then
+          echo 'No CRDs mounted at /crds/, nothing to load'
+          exit 0
+        fi
+        
+        echo 'Waiting for kubeconfig to be available...'
+        while [ ! -f /output/kubeconfig.yaml ]; do
+          echo 'Kubeconfig not yet available, waiting...'
+          sleep 2
+        done
+        
+        echo 'Creating modified kubeconfig for container networking...'
+        sed 's/127\.0\.0\.1:6443/k3s-apiserver:6443/g' /output/kubeconfig.yaml > /tmp/kubeconfig-internal.yaml
+        
+        echo 'Waiting for K3s API server to be ready...'
+        until kubectl --kubeconfig=/tmp/kubeconfig-internal.yaml get nodes; do
+          echo 'K3s API server not ready, waiting...'
+          sleep 5
+        done
+        
+        echo 'K3s API server is ready, loading CRDs...'
+        
+        # Find and apply all CRD files (JSON and YAML)
+        find /crds -type f \( -name "*.json" -o -name "*.yaml" -o -name "*.yml" \) | while read crd; do
+          # Sanity check: verify file contains a CustomResourceDefinition
+          if grep -q "kind:[[:space:]]*CustomResourceDefinition" "$$crd" 2>/dev/null || \
+             grep -q '"kind"[[:space:]]*:[[:space:]]*"CustomResourceDefinition"' "$$crd" 2>/dev/null; then
+            echo "Loading CRD: $$crd"
+            kubectl --kubeconfig=/tmp/kubeconfig-internal.yaml apply -f "$$crd" || true
+          else
+            echo "Skipping (not a CRD): $$crd"
+          fi
+        done
+        
+        echo 'CRD loading complete'
+    restart: "no"
 
 volumes:
   k3s-data:
   k3s-certs:
+  k3s-output:
