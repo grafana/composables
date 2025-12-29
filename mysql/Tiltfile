@@ -2,8 +2,18 @@
 # Provides MySQL database for development.
 #
 # Exports:
-#   get_compose_path() - Returns path to the compose file
+#   cc_get_plugin()    - Returns plugin struct for compose_composer
+#   get_compose_path() - Returns path to the compose file (legacy)
 #   get_provides()     - What this extension provides (for documentation)
+
+load('ext://compose_composer', 'cc_local_compose')
+
+def cc_get_plugin():
+    """Returns the plugin struct for compose_composer."""
+    return cc_local_compose(
+        'mysql',
+        os.path.dirname(__file__) + '/mysql.yaml',
+    )
 
 def get_compose_path(file='mysql.yaml'):
     """Returns the absolute path to the compose file for this component."""

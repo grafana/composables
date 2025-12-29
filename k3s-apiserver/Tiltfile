@@ -2,10 +2,20 @@
 # Provides a standalone k3s API server for development.
 #
 # Exports:
-#   get_compose_path()    - Returns path to the compose file
+#   cc_get_plugin()       - Returns plugin struct for compose_composer
+#   get_compose_path()    - Returns path to the compose file (legacy)
 #   get_kubeconfig_path() - Returns path to the kubeconfig output
 #   get_provides()        - What this extension provides (for documentation)
 #   register_crds()       - Generate compose_overrides to mount CRDs into crd-loader
+
+load('ext://compose_composer', 'cc_local_compose')
+
+def cc_get_plugin():
+    """Returns the plugin struct for compose_composer."""
+    return cc_local_compose(
+        'k3s-apiserver',
+        os.path.dirname(__file__) + '/k3s-apiserver-generic.yaml',
+    )
 
 def get_compose_path(file='k3s-apiserver-generic.yaml'):
     """Returns the absolute path to the compose file for this component."""
@@ -23,47 +33,42 @@ def get_kubeconfig_path():
 # CRD Registration Helper
 # ============================================================================
 
-def register_crds(crd_paths, caller_dir):
+def register_crds(crd_paths):
     """
     Generate compose_overrides to mount CRDs into the crd-loader service.
     
     This helper keeps CRD-mounting logic encapsulated in k3s-apiserver.
-    Callers provide their CRD paths, and this returns the appropriate
-    compose_overrides to merge into their k3s-apiserver dependency.
+    Callers provide their CRD paths (absolute), and this returns the appropriate
+    modification to apply to k3s-apiserver.
     
     Args:
-        crd_paths: List of paths to CRD directories/files, relative to caller_dir
-        caller_dir: Absolute path to the caller's directory (os.path.dirname(__file__))
+        crd_paths: List of absolute paths to CRD directories/files.
+                   Use os.path.dirname(__file__) + '/crds' for paths relative to your Tiltfile.
     
     Returns:
-        Dict suitable for use as compose_overrides on k3s-apiserver dependency
+        Dict with compose_overrides structure. When used with dependency() helpers,
+        the _target field is added automatically by the wrapper.
     
     Example:
-        from k3s-apiserver import register_crds
+        k3s = dependency(
+            name='k3s-apiserver',
+            url='...',
+            imports=['register_crds'],
+        )
         
-        core_dependencies = [
-            {
-                'name': 'k3s-apiserver',
-                'url': '...',
-                'compose_overrides': register_crds(
-                    crd_paths=['./definitions', './crds'],
-                    caller_dir=os.path.dirname(__file__),
-                ),
-            },
-        ]
+        crd_mod = k3s.register_crds(crd_paths=[
+            os.path.dirname(__file__) + '/definitions',
+            os.path.dirname(__file__) + '/crds',
+        ])
+        
+        master = generate_master_compose([k3s, mysql], modifications=[crd_mod])
     """
     volumes = []
     
     for path in crd_paths:
-        # Resolve path relative to caller's directory
-        if path.startswith('/'):
-            abs_path = path
-        else:
-            abs_path = os.path.abspath(caller_dir + '/' + path)
-        
         # Use basename for the mount point under /crds
-        mount_name = os.path.basename(abs_path)
-        volume_mount = abs_path + ':/crds/' + mount_name + ':ro'
+        mount_name = os.path.basename(path)
+        volume_mount = path + ':/crds/' + mount_name + ':ro'
         volumes.append(volume_mount)
     
     if not volumes:
