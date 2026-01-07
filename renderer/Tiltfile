@@ -26,6 +26,7 @@ def cc_get_plugin():
     return cc_local_compose(
         'renderer',
         os.path.dirname(__file__) + '/renderer.yaml',
+        labels=['observability'],
     )
 
 def get_compose_path(file='renderer.yaml'):

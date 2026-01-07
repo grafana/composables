@@ -25,6 +25,7 @@ def cc_get_plugin():
     return cc_local_compose(
         'mysql-test',
         os.path.dirname(__file__) + '/mysql-test.yaml',
+        labels=['sql-test'],
     )
 
 def get_compose_path(file='mysql-test.yaml'):

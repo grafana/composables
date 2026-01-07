@@ -25,6 +25,7 @@ def cc_get_plugin():
     return cc_local_compose(
         'bigquery-emulator',
         os.path.dirname(__file__) + '/bigquery-emulator.yaml',
+        labels=['sql-test'],
     )
 
 def get_compose_path(file='bigquery-emulator.yaml'):

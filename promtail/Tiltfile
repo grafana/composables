@@ -26,6 +26,7 @@ def cc_get_plugin():
     return cc_local_compose(
         'promtail',
         os.path.dirname(__file__) + '/promtail.yaml',
+        labels=['observability'],
     )
 
 def get_compose_path(file='promtail.yaml'):
