@@ -1,9 +1,10 @@
-# MySQL Tilt Extension
-# Provides MySQL database for development.
+# Grafana Renderer Tilt Extension
+# Provides Grafana image renderer for panel snapshots and reports.
 #
 # Exports:
 #   cc_get_plugin()    - Returns plugin struct for compose_composer
 #   get_compose_path() - Returns path to the compose file (legacy)
+#   get_wire_when()    - Auto-configure Grafana when loaded together
 #   get_provides()     - What this extension provides (for documentation)
 
 # Set up extension repo for standalone mode only
@@ -23,17 +24,32 @@ load('ext://compose_composer', 'cc_local_compose')
 def cc_get_plugin():
     """Returns the plugin struct for compose_composer."""
     return cc_local_compose(
-        'mysql',
-        os.path.dirname(__file__) + '/mysql.yaml',
+        'renderer',
+        os.path.dirname(__file__) + '/renderer.yaml',
     )
 
-def get_compose_path(file='mysql.yaml'):
+def get_compose_path(file='renderer.yaml'):
     """Returns the absolute path to the compose file for this component."""
     return os.path.dirname(__file__) + '/' + file
 
-def compose_file_contents(file='mysql.yaml'):
-    """Returns the parsed YAML contents of the compose file."""
-    return read_yaml(get_compose_path(file))
+def get_wire_when():
+    """
+    Declarative wiring for renderer integration.
+    Auto-configure Grafana to use renderer when loaded together.
+    """
+    return {
+        'grafana': {
+            'services': {
+                'grafana': {
+                    'depends_on': ['renderer'],
+                    'environment': {
+                        'GF_RENDERING_SERVER_URL': 'http://renderer:8081/render',
+                        'GF_RENDERING_CALLBACK_URL': 'http://grafana:3000/',
+                    },
+                },
+            },
+        },
+    }
 
 def get_provides():
     """
@@ -43,13 +59,12 @@ def get_provides():
     return {
         'services': [
             {
-                'name': 'db',
-                'description': 'MySQL 8 database',
-                'ports': {'3306': 'MySQL'},
+                'name': 'renderer',
+                'description': 'Grafana image renderer',
+                'ports': {
+                    '8081': 'Renderer API',
+                },
             },
-        ],
-        'volumes': [
-            {'name': 'mysql-data', 'description': 'MySQL persistent data'},
         ],
     }
 
@@ -60,4 +75,3 @@ def get_provides():
 # If loaded directly via 'tilt up', run the compose file
 if __file__ == config.main_path:
     docker_compose(get_compose_path())
-

@@ -1,5 +1,5 @@
-# MySQL Tilt Extension
-# Provides MySQL database for development.
+# MS SQL Server Test Tilt Extension
+# Provides MS SQL Server test database for SQL testing.
 #
 # Exports:
 #   cc_get_plugin()    - Returns plugin struct for compose_composer
@@ -23,17 +23,13 @@ load('ext://compose_composer', 'cc_local_compose')
 def cc_get_plugin():
     """Returns the plugin struct for compose_composer."""
     return cc_local_compose(
-        'mysql',
-        os.path.dirname(__file__) + '/mysql.yaml',
+        'mssql-test',
+        os.path.dirname(__file__) + '/mssql-test.yaml',
     )
 
-def get_compose_path(file='mysql.yaml'):
+def get_compose_path(file='mssql-test.yaml'):
     """Returns the absolute path to the compose file for this component."""
     return os.path.dirname(__file__) + '/' + file
-
-def compose_file_contents(file='mysql.yaml'):
-    """Returns the parsed YAML contents of the compose file."""
-    return read_yaml(get_compose_path(file))
 
 def get_provides():
     """
@@ -43,13 +39,15 @@ def get_provides():
     return {
         'services': [
             {
-                'name': 'db',
-                'description': 'MySQL 8 database',
-                'ports': {'3306': 'MySQL'},
+                'name': 'mssql-test',
+                'description': 'MS SQL Server test database',
+                'ports': {
+                    '1433': 'MS SQL Server',
+                },
             },
         ],
         'volumes': [
-            {'name': 'mysql-data', 'description': 'MySQL persistent data'},
+            {'name': 'mssql-test-data', 'description': 'MS SQL Server test data'},
         ],
     }
 
@@ -60,4 +58,3 @@ def get_provides():
 # If loaded directly via 'tilt up', run the compose file
 if __file__ == config.main_path:
     docker_compose(get_compose_path())
-

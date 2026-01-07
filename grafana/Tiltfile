@@ -7,6 +7,18 @@
 #   get_wire_when()    - Conditional wiring rules
 #   get_provides()     - What this extension provides (for documentation)
 
+# Set up extension repo for standalone mode only
+if __file__ == config.main_path:
+    v1alpha1.extension_repo(
+        name='local-tilt-extensions',
+        url='file://' + os.path.dirname(__file__) + '/../..'
+    )
+    v1alpha1.extension(
+        name='compose_composer',
+        repo_name='local-tilt-extensions',
+        repo_path='tilt-extensions/compose_composer'
+    )
+
 load('ext://compose_composer', 'cc_local_compose')
 
 def cc_get_plugin():
@@ -66,12 +78,12 @@ def get_wire_when():
                 'grafana': {
                     # Add service dependency
                     'depends_on': ['k3s-apiserver'],
-                    
+
                     # Mount the shared certificates volume
                     'volumes': [
                         'k3s-certs:/etc/kubernetes/pki:ro',
                     ],
-                    
+
                     # Set environment variables
                     'environment': {
                         'KUBECONFIG': '/etc/grafana/kubeconfig.yaml',
@@ -79,6 +91,44 @@ def get_wire_when():
                         'GF_GRAFANA_APISERVER_PROXY_CLIENT_KEY_FILE': '/etc/kubernetes/pki/api-server-aggregation/apiserver-client-key.pem',
                         # 'GF_GRAFANA_APISERVER_REMOTE_SERVICES_FILE': '/etc/kubernetes/pki/aggregator-config.yaml',
 
+                    },
+                },
+            },
+        },
+
+        # When NATS is loaded, wire grafana to use it for real-time events
+        'nats': {
+            'services': {
+                'grafana': {
+                    'depends_on': ['nats'],
+                    'environment': {
+                        'DASH_PKG_NATS_SERVER_ADDRESS': 'nats://nats:4222',
+                    },
+                },
+            },
+        },
+
+        # When renderer is loaded, configure grafana to use it
+        'renderer': {
+            'services': {
+                'grafana': {
+                    'depends_on': ['renderer'],
+                    'environment': {
+                        'GF_RENDERING_SERVER_URL': 'http://renderer:8081/render',
+                        'GF_RENDERING_CALLBACK_URL': 'http://grafana:3000/',
+                    },
+                },
+            },
+        },
+
+        # When jaeger is loaded, configure grafana for tracing
+        'jaeger': {
+            'services': {
+                'grafana': {
+                    'depends_on': ['jaeger'],
+                    'environment': {
+                        'OTEL_EXPORTER_OTLP_ENDPOINT': 'http://jaeger:4317',
+                        'OTEL_TRACES_SAMPLER': 'always_on',
                     },
                 },
             },

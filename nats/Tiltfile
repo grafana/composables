@@ -1,5 +1,5 @@
-# MySQL Tilt Extension
-# Provides MySQL database for development.
+# NATS Tilt Extension
+# Provides NATS message broker for event-driven architectures.
 #
 # Exports:
 #   cc_get_plugin()    - Returns plugin struct for compose_composer
@@ -23,17 +23,13 @@ load('ext://compose_composer', 'cc_local_compose')
 def cc_get_plugin():
     """Returns the plugin struct for compose_composer."""
     return cc_local_compose(
-        'mysql',
-        os.path.dirname(__file__) + '/mysql.yaml',
+        'nats',
+        os.path.dirname(__file__) + '/nats.yaml',
     )
 
-def get_compose_path(file='mysql.yaml'):
+def get_compose_path(file='nats.yaml'):
     """Returns the absolute path to the compose file for this component."""
     return os.path.dirname(__file__) + '/' + file
-
-def compose_file_contents(file='mysql.yaml'):
-    """Returns the parsed YAML contents of the compose file."""
-    return read_yaml(get_compose_path(file))
 
 def get_provides():
     """
@@ -43,13 +39,14 @@ def get_provides():
     return {
         'services': [
             {
-                'name': 'db',
-                'description': 'MySQL 8 database',
-                'ports': {'3306': 'MySQL'},
+                'name': 'nats',
+                'description': 'NATS message broker',
+                'ports': {
+                    '4222': 'Client connections',
+                    '8222': 'HTTP monitoring',
+                    '6222': 'Routing port for clustering',
+                },
             },
-        ],
-        'volumes': [
-            {'name': 'mysql-data', 'description': 'MySQL persistent data'},
         ],
     }
 
@@ -60,4 +57,3 @@ def get_provides():
 # If loaded directly via 'tilt up', run the compose file
 if __file__ == config.main_path:
     docker_compose(get_compose_path())
-

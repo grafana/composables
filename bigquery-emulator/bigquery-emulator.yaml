@@ -1,0 +1,27 @@
+services:
+  bigquery-emulator:
+    platform: linux/amd64
+    image: ghcr.io/goccy/bigquery-emulator:latest
+    container_name: grafana-assistant-bigquery
+    restart: always
+    ports:
+      - '9050:9050'  # HTTP port for BigQuery emulator
+    command: '--project=explore-sequel-void --dataset=test_dataset --log-level=debug'
+    volumes:
+      - bigquery-data:/data
+    healthcheck:
+      test: ['CMD-SHELL', 'bash -c "</dev/tcp/localhost/9050" || exit 1']
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1g
+        reservations:
+          cpus: '0.25'
+          memory: 64M
+
+volumes:
+  bigquery-data:

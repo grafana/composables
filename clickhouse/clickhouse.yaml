@@ -1,0 +1,31 @@
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:latest
+    container_name: grafana-assistant-clickhouse
+    ports:
+      - '8123:8123'  # HTTP port
+      - '9000:9000'  # Native port
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+    environment:
+      - CLICKHOUSE_SKIP_USER_SETUP=1
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    healthcheck:
+      test: ['CMD', 'clickhouse-client', '--query', 'SELECT 1']
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4g
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+
+volumes:
+  clickhouse-data:

@@ -8,6 +8,18 @@
 #   get_provides()        - What this extension provides (for documentation)
 #   register_crds()       - Generate compose_overrides to mount CRDs into crd-loader
 
+# Set up extension repo for standalone mode only
+if __file__ == config.main_path:
+    v1alpha1.extension_repo(
+        name='local-tilt-extensions',
+        url='file://' + os.path.dirname(__file__) + '/../..'
+    )
+    v1alpha1.extension(
+        name='compose_composer',
+        repo_name='local-tilt-extensions',
+        repo_path='tilt-extensions/compose_composer'
+    )
+
 load('ext://compose_composer', 'cc_local_compose')
 
 def cc_get_plugin():
