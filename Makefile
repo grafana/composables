@@ -5,7 +5,7 @@ COMPONENTS := $(dir $(wildcard */Tiltfile))
 
 # Test all components
 test-all:
-	@echo "Testing all devenv-compose components..."
+	@echo "Testing all composables components..."
 	@for dir in $(COMPONENTS); do \
 		echo ""; \
 		echo "=========================================="; \
