@@ -17,11 +17,11 @@ if __file__ == config.main_path:
         repo_path='tilt-extensions/compose_composer'
     )
 
-load('ext://compose_composer', 'cc_local_compose')
+load('ext://compose_composer', 'cc_local_composable')
 
 def cc_get_plugin():
     """Returns the plugin struct for compose_composer."""
-    return cc_local_compose(
+    return cc_local_composable(
         'jaeger',
         os.path.dirname(__file__) + '/jaeger.yaml',
         labels=['observability'],
