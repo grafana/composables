@@ -5,7 +5,6 @@
 #   cc_get_plugin()       - Returns plugin struct for compose_composer
 #   get_compose_path()    - Returns path to the compose file (legacy)
 #   get_kubeconfig_path() - Returns path to the kubeconfig output
-#   get_provides()        - What this extension provides (for documentation)
 #   register_crds()       - Generate compose_overrides to mount CRDs into crd-loader
 
 # Set up extension repo for standalone mode only
@@ -91,58 +90,6 @@ def register_crds(crd_paths):
         'services': {
             'crd-loader': {
                 'volumes': volumes,
-            },
-        },
-    }
-
-def get_provides():
-    """
-    Declare what this extension provides.
-    Used for documentation and discoverability.
-    """
-    return {
-        'services': [
-            {
-                'name': 'k3s-apiserver',
-                'description': 'Kubernetes API server (k3s)',
-                'ports': {'6443': 'Kubernetes API'},
-            },
-            {
-                'name': 'cert-provider',
-                'description': 'Certificate generation (one-shot)',
-            },
-            {
-                'name': 'traefik',
-                'description': 'Webhook proxy for K8s admission controllers',
-                'ports': {'443': 'HTTPS webhooks', '8080': 'Dashboard'},
-            },
-            {
-                'name': 'crd-loader',
-                'description': 'Generic CRD loader - use register_crds() to mount CRDs',
-            },
-        ],
-        'volumes': [
-            {
-                'name': 'k3s-certs',
-                'description': 'Shared certificates for TLS and API aggregation',
-                'paths': {
-                    '/api-server-aggregation/': 'Client certs for API aggregation',
-                    '/tls/': 'TLS certs for webhooks',
-                },
-            },
-            {
-                'name': 'k3s-data',
-                'description': 'K3s persistent data (etcd)',
-            },
-            {
-                'name': 'k3s-output',
-                'description': 'Kubeconfig and outputs from k3s',
-            },
-        ],
-        'outputs': {
-            'kubeconfig': {
-                'path': get_kubeconfig_path(),
-                'description': 'Kubeconfig for accessing the K3s API server',
             },
         },
     }

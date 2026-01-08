@@ -4,7 +4,6 @@
 # Exports:
 #   cc_get_plugin()    - Returns plugin struct for compose_composer
 #   get_compose_path() - Returns path to the compose file (legacy)
-#   get_provides()     - What this extension provides (for documentation)
 
 # Set up extension repo for standalone mode only
 if __file__ == config.main_path:
@@ -31,26 +30,6 @@ def cc_get_plugin():
 def get_compose_path(file='loki.yaml'):
     """Returns the absolute path to the compose file for this component."""
     return os.path.dirname(__file__) + '/' + file
-
-def get_provides():
-    """
-    Declare what this extension provides.
-    Used for documentation and discoverability.
-    """
-    return {
-        'services': [
-            {
-                'name': 'loki',
-                'description': 'Loki log aggregation',
-                'ports': {
-                    '3100': 'HTTP API',
-                },
-            },
-        ],
-        'volumes': [
-            {'name': 'loki-data', 'description': 'Loki persistent data'},
-        ],
-    }
 
 # ============================================================================
 # Standalone Mode

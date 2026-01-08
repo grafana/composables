@@ -4,7 +4,6 @@
 # Exports:
 #   cc_get_plugin()    - Returns plugin struct for compose_composer
 #   get_compose_path() - Returns path to the compose file (legacy)
-#   get_provides()     - What this extension provides (for documentation)
 
 # Set up extension repo for standalone mode only
 if __file__ == config.main_path:
@@ -35,24 +34,6 @@ def get_compose_path(file='mysql.yaml'):
 def compose_file_contents(file='mysql.yaml'):
     """Returns the parsed YAML contents of the compose file."""
     return read_yaml(get_compose_path(file))
-
-def get_provides():
-    """
-    Declare what this extension provides.
-    Used for documentation and discoverability.
-    """
-    return {
-        'services': [
-            {
-                'name': 'db',
-                'description': 'MySQL 8 database',
-                'ports': {'3306': 'MySQL'},
-            },
-        ],
-        'volumes': [
-            {'name': 'mysql-data', 'description': 'MySQL persistent data'},
-        ],
-    }
 
 # ============================================================================
 # Standalone Mode

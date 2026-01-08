@@ -5,7 +5,6 @@
 #   cc_get_plugin()    - Returns plugin struct for compose_composer
 #   get_compose_path() - Returns path to the compose file (legacy)
 #   get_wire_when()    - Auto-wire to Loki when loaded together
-#   get_provides()     - What this extension provides (for documentation)
 
 # Set up extension repo for standalone mode only
 if __file__ == config.main_path:
@@ -46,20 +45,6 @@ def get_wire_when():
                 },
             },
         },
-    }
-
-def get_provides():
-    """
-    Declare what this extension provides.
-    Used for documentation and discoverability.
-    """
-    return {
-        'services': [
-            {
-                'name': 'promtail',
-                'description': 'Promtail log collector (ships to Loki)',
-            },
-        ],
     }
 
 # ============================================================================
