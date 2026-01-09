@@ -3,7 +3,6 @@
 #
 # Exports:
 #   cc_get_plugin()    - Returns plugin struct for compose_composer
-#   get_compose_path() - Returns path to the compose file (legacy)
 
 # Set up extension repo for standalone mode only
 if __file__ == config.main_path:
@@ -27,19 +26,11 @@ def cc_get_plugin():
         labels=['infra'],
     )
 
-def get_compose_path(file='mysql.yaml'):
-    """Returns the absolute path to the compose file for this component."""
-    return os.path.dirname(__file__) + '/' + file
-
-def compose_file_contents(file='mysql.yaml'):
-    """Returns the parsed YAML contents of the compose file."""
-    return read_yaml(get_compose_path(file))
-
 # ============================================================================
 # Standalone Mode
 # ============================================================================
 
 # If loaded directly via 'tilt up', run the compose file
 if __file__ == config.main_path:
-    docker_compose(get_compose_path())
+    docker_compose(os.path.dirname(__file__) + '/mysql.yaml')
 

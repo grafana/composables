@@ -3,7 +3,6 @@
 #
 # Exports:
 #   cc_get_plugin()    - Returns plugin struct for compose_composer
-#   get_compose_path() - Returns path to the compose file (legacy)
 #   get_wire_when()    - Auto-wire to Loki when loaded together
 
 # Set up extension repo for standalone mode only
@@ -28,10 +27,6 @@ def cc_get_plugin():
         labels=['observability'],
     )
 
-def get_compose_path(file='promtail.yaml'):
-    """Returns the absolute path to the compose file for this component."""
-    return os.path.dirname(__file__) + '/' + file
-
 def get_wire_when():
     """
     Declarative wiring for promtail integration.
@@ -53,4 +48,4 @@ def get_wire_when():
 
 # If loaded directly via 'tilt up', run the compose file
 if __file__ == config.main_path:
-    docker_compose(get_compose_path())
+    docker_compose(os.path.dirname(__file__) + '/promtail.yaml')
