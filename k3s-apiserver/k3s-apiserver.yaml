@@ -64,10 +64,9 @@ services:
     image: traefik:v3.0
     container_name: traefik-webhook-proxy
     ports:
-      - "443:443"   # HTTPS for webhook traffic
+      - "9443:443"   # HTTPS for webhook traffic (unprivileged host port)
       - "8080:8080" # Traefik dashboard
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro # Docker provider
       - k3s-certs:/certs:ro # Access to webhook certificates
       - k3s-certs:/etc/traefik/certs:ro # Mount certificates for Traefik TLS
     depends_on:
@@ -98,9 +97,6 @@ services:
           --log.level=INFO \
           --api.dashboard=true \
           --api.insecure=true \
-          --providers.docker=true \
-          --providers.docker.exposedbydefault=false \
-          --providers.docker.network=docker-compose_default \
           --entrypoints.websecure.address=:443 \
           --serverstransport.insecureskipverify=true \
           --providers.file.directory=/etc/traefik/dynamic \
@@ -122,6 +118,7 @@ services:
         condition: service_completed_successfully
     command:
       - server
+      - --disable-agent
       - --disable-scheduler
       - --disable-controller-manager
       - --disable=coredns
@@ -139,6 +136,7 @@ services:
       # API aggregation support
       - --kube-apiserver-arg=requestheader-client-ca-file=/etc/kubernetes/pki/api-server-aggregation/apiserver-client-ca.pem
       - --kube-apiserver-arg=requestheader-allowed-names=front-proxy-client,My Client
+      - --kube-apiserver-arg=feature-gates=KubeletInUserNamespace=true
       # Disable built-in traefik to avoid conflicts with our custom Traefik
       - --disable=traefik
     ports:

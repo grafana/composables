@@ -1,0 +1,220 @@
+# Tests for k3s-apiserver composable
+# Run with: tilt ci (from this directory)
+
+# ============================================================================
+# Function Definitions (copied from parent for testing)
+# ============================================================================
+
+def register_crds(crd_paths):
+    """
+    Generate compose_overrides to mount CRDs into the crd-loader service.
+    """
+    volumes = []
+
+    for path in crd_paths:
+        # Use basename for the mount point under /crds
+        mount_name = os.path.basename(path)
+        volume_mount = path + ':/crds/' + mount_name + ':ro'
+        volumes.append(volume_mount)
+
+    if not volumes:
+        return {}
+
+    return {
+        'services': {
+            'crd-loader': {
+                'volumes': volumes,
+            },
+        },
+    }
+
+def register_webhook(operator_specs):
+    """
+    Generate compose_overrides to configure webhook operator routing in Traefik.
+    """
+    if not operator_specs:
+        return {}
+
+    # Validate operator specs
+    if type(operator_specs) != 'list':
+        fail("operator_specs must be a list, got: " + str(type(operator_specs)))
+
+    # Build WEBHOOK_OPERATORS string from specs
+    operators = []
+    for spec in operator_specs:
+        if type(spec) != 'dict':
+            fail("Each operator spec must be a dict, got: " + str(type(spec)))
+
+        if 'name' not in spec:
+            fail("Operator spec must have 'name' field")
+
+        name = spec['name']
+        namespace = spec.get('namespace', 'default')
+        # port is for documentation/future use - current implementation uses service discovery
+
+        operators.append(name + ':' + namespace)
+
+    webhook_operators_str = ','.join(operators)
+
+    # Return compose_overrides that set WEBHOOK_OPERATORS environment variable
+    # This overrides the default in k3s-apiserver-generic.yaml
+    # Using dict format for environment ensures proper merging
+    return {
+        'services': {
+            'cert-provider': {
+                'environment': {
+                    'WEBHOOK_OPERATORS': webhook_operators_str,
+                },
+            },
+            'traefik': {
+                'environment': {
+                    'WEBHOOK_OPERATORS': webhook_operators_str,
+                },
+            },
+        },
+    }
+
+# ============================================================================
+# Test Helpers
+# ============================================================================
+
+def assert_equals(actual, expected, msg=""):
+    if actual != expected:
+        fail_msg = "Expected '{}', got '{}'".format(expected, actual)
+        if msg:
+            fail_msg = msg + ": " + fail_msg
+        fail(fail_msg)
+
+def assert_true(condition, msg=""):
+    if not condition:
+        fail(msg if msg else "Assertion failed")
+
+def assert_in(item, collection, msg=""):
+    if item not in collection:
+        fail_msg = "'{}' not in '{}'".format(item, collection)
+        if msg:
+            fail_msg = msg + ": " + fail_msg
+        fail(fail_msg)
+
+# ============================================================================
+# register_crds Tests
+# ============================================================================
+
+def test_register_crds_basic():
+    """Test register_crds with single path."""
+    result = register_crds(crd_paths=['/path/to/crds'])
+    assert_true('services' in result, "Result should have services key")
+    assert_true('crd-loader' in result['services'], "Should target crd-loader service")
+    assert_true('volumes' in result['services']['crd-loader'], "Should have volumes")
+    assert_equals(len(result['services']['crd-loader']['volumes']), 1)
+    print("  [PASS] test_register_crds_basic")
+
+def test_register_crds_multiple_paths():
+    """Test register_crds with multiple paths."""
+    result = register_crds(crd_paths=['/path/to/crds', '/path/to/definitions'])
+    assert_equals(len(result['services']['crd-loader']['volumes']), 2)
+    print("  [PASS] test_register_crds_multiple_paths")
+
+def test_register_crds_empty_list():
+    """Test register_crds with empty list returns empty dict."""
+    result = register_crds(crd_paths=[])
+    assert_equals(result, {}, "Empty crd_paths should return empty dict")
+    print("  [PASS] test_register_crds_empty_list")
+
+def test_register_crds_volume_format():
+    """Test register_crds generates correct volume format."""
+    result = register_crds(crd_paths=['/abs/path/to/definitions'])
+    volumes = result['services']['crd-loader']['volumes']
+    # Should be: /abs/path/to/definitions:/crds/definitions:ro
+    assert_true(volumes[0].startswith('/abs/path/to/definitions:'), "Should start with source path")
+    assert_true(':ro' in volumes[0], "Should be read-only mount")
+    print("  [PASS] test_register_crds_volume_format")
+
+# ============================================================================
+# register_webhook Tests
+# ============================================================================
+
+def test_register_webhook_basic():
+    """Test register_webhook with single operator."""
+    result = register_webhook(operator_specs=[
+        {'name': 'my-operator', 'namespace': 'default', 'port': 8443}
+    ])
+    assert_true('services' in result, "Result should have services key")
+    assert_true('cert-provider' in result['services'], "Should target cert-provider")
+    assert_true('traefik' in result['services'], "Should target traefik")
+    assert_true('environment' in result['services']['cert-provider'])
+    assert_true('environment' in result['services']['traefik'])
+    print("  [PASS] test_register_webhook_basic")
+
+def test_register_webhook_env_format():
+    """Test register_webhook generates correct WEBHOOK_OPERATORS format."""
+    result = register_webhook(operator_specs=[
+        {'name': 'op1', 'namespace': 'ns1', 'port': 8443}
+    ])
+    env = result['services']['traefik']['environment']
+    assert_true('WEBHOOK_OPERATORS' in env, "Should set WEBHOOK_OPERATORS")
+    assert_equals(env['WEBHOOK_OPERATORS'], 'op1:ns1', "Should be name:namespace format")
+    print("  [PASS] test_register_webhook_env_format")
+
+def test_register_webhook_multiple_operators():
+    """Test register_webhook with multiple operators."""
+    result = register_webhook(operator_specs=[
+        {'name': 'op1', 'namespace': 'ns1'},
+        {'name': 'op2', 'namespace': 'ns2'},
+    ])
+    env = result['services']['traefik']['environment']
+    assert_equals(env['WEBHOOK_OPERATORS'], 'op1:ns1,op2:ns2', "Should be comma-separated")
+    print("  [PASS] test_register_webhook_multiple_operators")
+
+def test_register_webhook_default_namespace():
+    """Test register_webhook uses default namespace."""
+    result = register_webhook(operator_specs=[
+        {'name': 'my-operator'}  # No namespace specified
+    ])
+    env = result['services']['traefik']['environment']
+    assert_equals(env['WEBHOOK_OPERATORS'], 'my-operator:default', "Should use default namespace")
+    print("  [PASS] test_register_webhook_default_namespace")
+
+def test_register_webhook_empty_list():
+    """Test register_webhook with empty list returns empty dict."""
+    result = register_webhook(operator_specs=[])
+    assert_equals(result, {}, "Empty operator_specs should return empty dict")
+    print("  [PASS] test_register_webhook_empty_list")
+
+def test_register_webhook_both_services():
+    """Test register_webhook sets env on both cert-provider and traefik."""
+    result = register_webhook(operator_specs=[{'name': 'op1'}])
+    cert_env = result['services']['cert-provider']['environment']['WEBHOOK_OPERATORS']
+    traefik_env = result['services']['traefik']['environment']['WEBHOOK_OPERATORS']
+    assert_equals(cert_env, 'op1:default', "cert-provider should have WEBHOOK_OPERATORS")
+    assert_equals(traefik_env, 'op1:default', "traefik should have WEBHOOK_OPERATORS")
+    print("  [PASS] test_register_webhook_both_services")
+
+# ============================================================================
+# Run All Tests
+# ============================================================================
+
+def run_tests():
+    print("\n=== register_crds Tests ===")
+    test_register_crds_basic()
+    test_register_crds_multiple_paths()
+    test_register_crds_empty_list()
+    test_register_crds_volume_format()
+
+    print("\n=== register_webhook Tests ===")
+    test_register_webhook_basic()
+    test_register_webhook_env_format()
+    test_register_webhook_multiple_operators()
+    test_register_webhook_default_namespace()
+    test_register_webhook_empty_list()
+    test_register_webhook_both_services()
+
+    print("\n" + "=" * 50)
+    print("All tests passed!")
+    print("=" * 50)
+
+# Run tests
+run_tests()
+
+# Dummy resource to satisfy tilt ci
+local_resource('tests', cmd='echo "Tests completed"', auto_init=False)

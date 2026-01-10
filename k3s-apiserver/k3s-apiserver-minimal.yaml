@@ -76,6 +76,7 @@ services:
       # API aggregation support
       - --kube-apiserver-arg=requestheader-client-ca-file=/etc/kubernetes/pki/api-server-aggregation/apiserver-client-ca.pem
       - --kube-apiserver-arg=requestheader-allowed-names=front-proxy-client,My Client
+      - --kube-apiserver-arg=feature-gates=KubeletInUserNamespace=true
     ports:
       - "6443:6443"  # Kubernetes API server port
     volumes:

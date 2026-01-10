@@ -112,10 +112,9 @@ services:
     image: traefik:v3.0
     container_name: traefik-webhook-proxy
     ports:
-      - "443:443"   # HTTPS for webhook traffic
+      - "9443:443"   # HTTPS for webhook traffic (unprivileged host port)
       - "8080:8080" # Traefik dashboard
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro # Docker provider
       - k3s-certs:/certs:ro # Access to webhook certificates
       - k3s-certs:/etc/traefik/certs:ro # Mount certificates for Traefik TLS
     environment:
@@ -143,15 +142,72 @@ services:
                 certFile: /etc/traefik/certs/tls/tls.crt
                 keyFile: /etc/traefik/certs/tls/tls.key
         EOF
-        
+
+        # Create dynamic routing configuration for webhook operators
+        # This replaces Docker label-based routing since we can't access the Podman socket
+        WEBHOOK_OPERATORS=$${WEBHOOK_OPERATORS:-grafana-servicemodel-operator:default}
+        echo "Configuring routes for webhook operators: $$WEBHOOK_OPERATORS"
+
+        OPERATORS=$$(echo "$$WEBHOOK_OPERATORS" | tr ',' ' ')
+        for operator in $$OPERATORS; do
+          # Split operator:namespace (default to 'default' namespace)
+          if [[ "$$operator" == *:* ]]; then
+            OP_NAME="$${operator%:*}"
+            OP_NAMESPACE="$${operator#*:}"
+          else
+            OP_NAME="$$operator"
+            OP_NAMESPACE="default"
+          fi
+
+          echo "Creating route for operator: $$OP_NAME"
+
+          # Create routing configuration for this operator
+          cat > /etc/traefik/dynamic/$$OP_NAME.yml << EOF
+        http:
+          routers:
+            $${OP_NAME}-router:
+              rule: "Host(\`$$OP_NAME.$$OP_NAMESPACE.svc.cluster.local\`)"
+              service: $${OP_NAME}-service
+              entryPoints:
+                - websecure
+              tls: {}
+
+            $${OP_NAME}-mutate-router:
+              rule: "Host(\`$$OP_NAME.$$OP_NAMESPACE.svc.cluster.local\`) && Path(\`/mutate\`)"
+              service: $${OP_NAME}-service
+              entryPoints:
+                - websecure
+              tls: {}
+              priority: 100
+
+            $${OP_NAME}-validate-router:
+              rule: "Host(\`$$OP_NAME.$$OP_NAMESPACE.svc.cluster.local\`) && Path(\`/validate\`)"
+              service: $${OP_NAME}-service
+              entryPoints:
+                - websecure
+              tls: {}
+              priority: 100
+
+          services:
+            $${OP_NAME}-service:
+              loadBalancer:
+                servers:
+                  - url: "https://$$OP_NAME:8443"
+                serversTransport: insecureTransport
+
+          serversTransports:
+            insecureTransport:
+              insecureSkipVerify: true
+        EOF
+
+          echo "Created routing configuration for $$OP_NAME"
+        done
+
         echo "Starting Traefik with webhook proxy configuration..."
         exec traefik \
           --log.level=INFO \
           --api.dashboard=true \
           --api.insecure=true \
-          --providers.docker=true \
-          --providers.docker.exposedbydefault=false \
-          --providers.docker.network=docker-compose_default \
           --entrypoints.websecure.address=:443 \
           --serverstransport.insecureskipverify=true \
           --providers.file.directory=/etc/traefik/dynamic \
@@ -172,6 +228,7 @@ services:
         condition: service_completed_successfully
     command:
       - server
+      - --disable-agent
       - --disable-scheduler
       - --disable-controller-manager
       - --disable=coredns
@@ -189,6 +246,7 @@ services:
       # API aggregation support
       - --kube-apiserver-arg=requestheader-client-ca-file=/etc/kubernetes/pki/api-server-aggregation/apiserver-client-ca.pem
       - --kube-apiserver-arg=requestheader-allowed-names=front-proxy-client,My Client
+      - --kube-apiserver-arg=feature-gates=KubeletInUserNamespace=true
       # Disable built-in traefik to avoid conflicts with our custom Traefik
       - --disable=traefik
     ports:
