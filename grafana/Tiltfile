@@ -2,9 +2,10 @@
 # Provides Grafana for development.
 #
 # Exports:
-#   cc_get_plugin()     - Returns plugin struct for compose_composer
-#   get_wire_when()     - Conditional wiring rules
-#   provision_plugins() - Helper to mount plugin provisioning directories
+#   cc_get_plugin()                - Returns plugin struct for compose_composer
+#   get_wire_when()                - Conditional wiring rules
+#   provision_plugins()            - Helper to mount plugin provisioning directories
+#   register_aggregator_config()   - Configure API server aggregation for AppPlatform
 
 load('ext://compose_composer', 'cc_composable', 'cc_local_composable', 'cc_generate_master_compose', 'cc_docker_compose', 'cc_parse_cli_plugins')
 
@@ -38,6 +39,92 @@ def provision_plugins(plugin_paths=[]):
         'services': {
             'grafana': {
                 'volumes': volumes,
+            },
+        },
+    }
+
+def register_aggregator_config(api_groups):
+    """
+    Configure API server aggregation for Grafana AppPlatform.
+
+    This helper enables Grafana to aggregate external Kubernetes API servers
+    by creating a configuration file that lists the API groups to expose.
+
+    Args:
+        api_groups: List of dicts, each with:
+            - group: str     - API group (e.g., 'servicemodel.ext.grafana.com')
+            - version: str   - API version (e.g., 'v1alpha1')
+            - host: str      - API server hostname (default: 'k3s-apiserver')
+            - port: int      - API server port (default: 6443)
+
+    Returns:
+        Dict with compose_overrides structure to customize the aggregator-config service
+
+    Example:
+        grafana = cc_composable(
+            name='grafana',
+            url='...',
+            imports=['register_aggregator_config'],
+        )
+
+        def cc_get_plugin():
+            return cc_local_composable(
+                'my-app',
+                os.path.dirname(__file__) + '/docker-compose.yaml',
+                grafana,
+                modifications=[
+                    grafana.register_aggregator_config(api_groups=[
+                        {
+                            'group': 'servicemodel.ext.grafana.com',
+                            'version': 'v1alpha1',
+                            'host': 'k3s-apiserver',
+                            'port': 6443,
+                        },
+                    ]),
+                ],
+            )
+    """
+    if type(api_groups) != 'list':
+        fail("api_groups must be a list, got: " + str(type(api_groups)))
+
+    if not api_groups:
+        fail("api_groups cannot be empty - provide at least one API group")
+
+    # Build YAML content from api_groups
+    yaml_lines = []
+    for group_spec in api_groups:
+        if type(group_spec) != 'dict':
+            fail("Each api_group must be a dict, got: " + str(type(group_spec)))
+
+        if 'group' not in group_spec or 'version' not in group_spec:
+            fail("Each api_group must have 'group' and 'version' fields")
+
+        # Set defaults
+        host = group_spec.get('host', 'k3s-apiserver')
+        port = group_spec.get('port', 6443)
+
+        yaml_lines.append("- group: " + group_spec['group'])
+        yaml_lines.append("  version: " + group_spec['version'])
+        yaml_lines.append("  host: " + host)
+        yaml_lines.append("  port: " + str(port))
+
+    yaml_content = "\\n".join(yaml_lines)
+
+    # Return compose_overrides to customize the aggregator-config service
+    return {
+        'services': {
+            'aggregator-config': {
+                'command': [
+                    '-c',
+                    '''
+echo 'Creating aggregator config...'
+cat << 'EOF' > /certs/aggregator-config.yaml
+%s
+EOF
+echo 'Aggregator config created successfully'
+cat /certs/aggregator-config.yaml
+                    ''' % yaml_content,
+                ],
             },
         },
     }
@@ -102,8 +189,7 @@ def get_wire_when():
                         'KUBECONFIG': '/etc/grafana/kubeconfig.yaml',
                         'GF_GRAFANA_APISERVER_PROXY_CLIENT_CERT_FILE': '/etc/kubernetes/pki/api-server-aggregation/apiserver-client.pem',
                         'GF_GRAFANA_APISERVER_PROXY_CLIENT_KEY_FILE': '/etc/kubernetes/pki/api-server-aggregation/apiserver-client-key.pem',
-                        # 'GF_GRAFANA_APISERVER_REMOTE_SERVICES_FILE': '/etc/kubernetes/pki/aggregator-config.yaml',
-
+                        'GF_GRAFANA_APISERVER_REMOTE_SERVICES_FILE': '/etc/kubernetes/pki/aggregator-config.yaml',
                     },
                 },
             },
