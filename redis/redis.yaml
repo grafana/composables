@@ -1,0 +1,18 @@
+# Redis Cache Service for Development
+# Provides Redis cache for OnCall and other services
+# Used by OnCall backend for caching and Celery broker
+
+services:
+  redis:
+    image: redis:latest
+    ports:
+      - '${REDIS_PORT:-6379}:6379'
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+    command: redis-server --save 60 1 --loglevel warning
+
+volumes:
+  redis-data:

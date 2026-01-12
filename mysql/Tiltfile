@@ -2,7 +2,8 @@
 # Provides MySQL database for development.
 #
 # Exports:
-#   cc_get_plugin()    - Returns plugin struct for compose_composer
+#   cc_get_plugin()      - Returns plugin struct for compose_composer
+#   create_databases()   - Helper to create multiple databases
 
 # Set up extension repo for standalone mode only
 if __file__ == config.main_path:
@@ -10,6 +11,55 @@ if __file__ == config.main_path:
     v1alpha1.extension(name='compose_composer', repo_name='grafana-tilt-extensions', repo_path='compose_composer')
 
 load('ext://compose_composer', 'cc_local_composable')
+
+def create_databases(database_names=[], orchestrator_dir=None):
+    """
+    Helper function to create multiple databases in MySQL.
+
+    Args:
+        database_names: List of database names to create (e.g., ['grafana', 'oncall', 'incident'])
+        orchestrator_dir: Directory where orchestrator is running (for generating init script)
+
+    Returns:
+        Dict with compose_overrides to create the databases
+
+    Example:
+        mysql.create_databases(['grafana', 'oncall', 'incident'], os.path.dirname(__file__))
+    """
+    if not database_names:
+        return {}
+
+    # If no orchestrator dir specified, use current working directory
+    if not orchestrator_dir:
+        orchestrator_dir = os.getcwd()
+
+    # Generate SQL script to create databases
+    sql_commands = ["-- Auto-generated MySQL init script"]
+    for db_name in database_names:
+        sql_commands.append("CREATE DATABASE IF NOT EXISTS `" + db_name + "`;")
+        sql_commands.append("GRANT ALL PRIVILEGES ON `" + db_name + "`.* TO 'user'@'%';")
+
+    sql_commands.append("FLUSH PRIVILEGES;")
+    sql_script = '\n'.join(sql_commands)
+
+    # Create .mysql-init directory for generated scripts
+    init_dir = orchestrator_dir + '/.mysql-init'
+    local('mkdir -p ' + init_dir)
+
+    # Write the init script
+    init_script_path = init_dir + '/01-create-databases.sql'
+    local('cat > ' + init_script_path + ' <<\'EOF\'\n' + sql_script + '\nEOF\n')
+
+    # Return compose overrides to mount the init script
+    return {
+        'services': {
+            'db': {
+                'volumes': [
+                    init_dir + ':/docker-entrypoint-initdb.d:ro',
+                ],
+            },
+        },
+    }
 
 def cc_get_plugin():
     """Returns the plugin struct for compose_composer."""

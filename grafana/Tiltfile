@@ -2,8 +2,9 @@
 # Provides Grafana for development.
 #
 # Exports:
-#   cc_get_plugin()    - Returns plugin struct for compose_composer
-#   get_wire_when()    - Conditional wiring rules
+#   cc_get_plugin()     - Returns plugin struct for compose_composer
+#   get_wire_when()     - Conditional wiring rules
+#   provision_plugins() - Helper to mount plugin provisioning directories
 
 # Set up extension repo for standalone mode only
 if __file__ == config.main_path:
@@ -11,6 +12,40 @@ if __file__ == config.main_path:
     v1alpha1.extension(name='compose_composer', repo_name='grafana-tilt-extensions', repo_path='compose_composer')
 
 load('ext://compose_composer', 'cc_local_composable')
+
+def provision_plugins(plugin_paths=[]):
+    """
+    Helper function to mount plugin provisioning files into Grafana.
+
+    Args:
+        plugin_paths: List of directory paths containing plugin provisioning files
+                     Each path should contain YAML files for plugin configuration
+
+    Returns:
+        Dict with compose_overrides to mount the plugin directories
+
+    Example:
+        grafana.provision_plugins([
+            '/path/to/irm/dev/provisioning_files/oncall',
+            '/path/to/irm/dev/provisioning_files/incident',
+        ])
+    """
+    if not plugin_paths:
+        return {}
+
+    # Build volume mounts for each plugin path
+    volumes = []
+    for i, path in enumerate(plugin_paths):
+        # Mount each directory to a unique location in grafana provisioning
+        volumes.append(path + ':/etc/grafana/provisioning/plugins/plugin-' + str(i) + ':ro')
+
+    return {
+        'services': {
+            'grafana': {
+                'volumes': volumes,
+            },
+        },
+    }
 
 def cc_get_plugin():
     """Returns the plugin struct for compose_composer."""

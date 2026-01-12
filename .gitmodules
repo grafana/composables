@@ -1,0 +1,3 @@
+[submodule "ops-devenv"]
+	path = ops-devenv
+	url = git@github.com:grafana/ops-devenv.git

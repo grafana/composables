@@ -1,0 +1,24 @@
+# Tempo Distributed Tracing Service for Development
+# Provides Tempo tracing backend (optional)
+# Activated by WITH_TEMPO flag or tempo profile
+
+services:
+  tempo:
+    image: grafana/tempo:latest
+    command: ["-config.file=/etc/tempo.yaml"]
+    ports:
+      - '${TEMPO_HTTP_PORT:-3200}:3200'     # HTTP
+      - '${TEMPO_OTLP_PORT:-4317}:4317'     # OTLP gRPC
+    volumes:
+      - ./tempo-config.yaml:/etc/tempo.yaml:ro
+      - tempo-data:/var/tempo
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3200/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    profiles:
+      - tempo
+
+volumes:
+  tempo-data:

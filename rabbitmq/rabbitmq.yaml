@@ -1,0 +1,23 @@
+# RabbitMQ Message Queue Service for Development
+# Provides RabbitMQ message queue with management UI
+# Used by OnCall backend for Celery task queue
+
+services:
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - '${RABBITMQ_PORT:-5672}:5672'
+      - '${RABBITMQ_MGMT_PORT:-15672}:15672'
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:-guest}
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+
+volumes:
+  rabbitmq-data:

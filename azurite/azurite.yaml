@@ -1,0 +1,24 @@
+# Azurite Azure Storage Emulator for Development
+# Provides Azure Blob, Queue, and Table storage emulation (optional)
+# Activated by azurite profile
+
+services:
+  azurite:
+    image: mcr.microsoft.com/azure-storage/azurite:latest
+    command: azurite --blobHost 0.0.0.0 --queueHost 0.0.0.0 --tableHost 0.0.0.0 --loose
+    ports:
+      - '${AZURITE_BLOB_PORT:-10000}:10000'   # Blob storage
+      - '${AZURITE_QUEUE_PORT:-10001}:10001'  # Queue storage
+      - '${AZURITE_TABLE_PORT:-10002}:10002'  # Table storage
+    volumes:
+      - azurite-data:/data
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "10000"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    profiles:
+      - azurite
+
+volumes:
+  azurite-data:
