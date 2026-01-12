@@ -2,10 +2,11 @@
 # Provides a standalone k3s API server for development.
 #
 # Exports:
-#   cc_get_plugin()       - Returns plugin struct for compose_composer
-#   get_kubeconfig_path() - Returns path to the kubeconfig output
-#   register_crds()       - Generate compose_overrides to mount CRDs into crd-loader
-#   register_webhook()    - Generate compose_overrides to configure webhook operators
+#   cc_get_plugin()            - Returns plugin struct for compose_composer
+#   get_kubeconfig_path()      - Returns path to the kubeconfig output
+#   register_crds()            - Generate compose_overrides to mount CRDs into crd-loader
+#   register_webhook()         - Generate compose_overrides to configure webhook operators
+#   copy_kubeconfig_local()    - Create local_resource to copy kubeconfig to local path
 
 load('ext://compose_composer', 'cc_local_composable', 'cc_generate_master_compose', 'cc_docker_compose', 'cc_parse_cli_plugins')
 
@@ -142,10 +143,67 @@ def register_webhook(operator_specs):
         },
     }
 
+def copy_kubeconfig_local(dest_path, resource_name='kubeconfig-copy'):
+    """
+    Creates a Tilt local_resource that waits for kubeconfig to be synced,
+    then copies it to a local destination path for kubectl usage.
+
+    This helper enables orchestrators to get a local copy of the kubeconfig
+    for running kubectl commands on their host machine.
+
+    Args:
+        dest_path: Absolute path where kubeconfig should be copied
+                   (e.g., os.path.dirname(__file__) + '/generated-kubeconfig.yaml')
+        resource_name: Optional name for the Tilt resource (default: 'kubeconfig-copy')
+
+    Returns:
+        None - Creates the local_resource directly
+
+    Example:
+        k3s = cc_composable(
+            name='k3s-apiserver',
+            url='...',
+            imports=['copy_kubeconfig_local'],
+        )
+
+        if __file__ == config.main_path:
+            master = cc_generate_master_compose(cc_get_plugin(), cli_plugins)
+            cc_docker_compose(master)
+
+            # Copy kubeconfig for local kubectl usage
+            k3s.copy_kubeconfig_local(
+                dest_path=os.path.dirname(__file__) + '/generated-kubeconfig.yaml'
+            )
+    """
+    source_path = get_kubeconfig_path()
+
+    local_resource(
+        resource_name,
+        cmd='''
+SOURCE="%s"
+DEST="%s"
+
+echo "Waiting for kubeconfig to be synced by k3s-apiserver..."
+while [ ! -f "$SOURCE" ]; do
+  echo "  Kubeconfig not yet available at $SOURCE, waiting..."
+  sleep 2
+done
+
+echo "Copying kubeconfig to $DEST"
+cp "$SOURCE" "$DEST"
+echo "✓ Kubeconfig ready for local kubectl usage at $DEST"
+        ''' % (source_path, dest_path),
+        resource_deps=['kubeconfig-sync'],
+        auto_init=True,
+        trigger_mode=TRIGGER_MODE_AUTO,
+        labels=['k8s'],
+    )
+
 def k3s_test_exports():
     """Returns internal functions for testing."""
     return {
         'register_crds': register_crds,
         'register_webhook': register_webhook,
+        'copy_kubeconfig_local': copy_kubeconfig_local,
     }
 
