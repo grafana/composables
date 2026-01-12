@@ -1,6 +1,10 @@
 # Find all directories containing both a Tiltfile and a Makefile
 SUBDIRS := $(patsubst %/,%,$(dir $(wildcard */Makefile)))
 
+# Load environment variables from .env.docker-compose if it exists
+-include .env.docker-compose
+export
+
 # ANSI color codes
 GREEN := \033[0;32m
 RED := \033[0;31m
