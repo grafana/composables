@@ -25,5 +25,10 @@ def cc_get_plugin():
 # ============================================================================
 
 # If loaded directly via 'tilt up', run the compose file
+# Enable the tempo profile for standalone mode
 if __file__ == config.main_path:
-    docker_compose(os.path.dirname(__file__) + '/tempo.yaml')
+    docker_compose(
+        os.path.dirname(__file__) + '/tempo.yaml',
+        env_file=os.path.dirname(__file__) + '/../../.env.docker-compose',
+        profiles=['tempo']
+    )
