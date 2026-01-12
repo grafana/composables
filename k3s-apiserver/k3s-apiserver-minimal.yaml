@@ -78,7 +78,7 @@ services:
       - --kube-apiserver-arg=requestheader-allowed-names=front-proxy-client,My Client
       - --kube-apiserver-arg=feature-gates=KubeletInUserNamespace=true
     ports:
-      - "6443:6443"  # Kubernetes API server port
+      - '${K3S_API_SERVER_PORT:-6443}:6443'  # Kubernetes API server port
     volumes:
       - k3s-data:/var/lib/rancher/k3s # Persistence for K3s data (including etcd)
       - k3s-certs:/etc/kubernetes/pki:ro # Mount certificates from shared volume

@@ -64,8 +64,8 @@ services:
     image: traefik:v3.0
     container_name: traefik-webhook-proxy
     ports:
-      - "9443:443"   # HTTPS for webhook traffic (unprivileged host port)
-      - "8080:8080" # Traefik dashboard
+      - '${TRAEFIK_PORT:-9443}:443'   # HTTPS for webhook traffic (unprivileged host port)
+      - '${TRAEFIK_DASHBOARD_PORT:-8080}:8080' # Traefik dashboard
     volumes:
       - k3s-certs:/certs:ro # Access to webhook certificates
       - k3s-certs:/etc/traefik/certs:ro # Mount certificates for Traefik TLS
@@ -140,7 +140,7 @@ services:
       # Disable built-in traefik to avoid conflicts with our custom Traefik
       - --disable=traefik
     ports:
-      - "6443:6443"  # Kubernetes API server port
+      - '${K3S_API_SERVER_PORT:-6443}:6443'  # Kubernetes API server port
     # DNS resolution will be handled by Docker's internal DNS
     # The hostname grafana-servicemodel-operator.default.svc.cluster.local 
     # will need to be mapped at the network level

@@ -112,8 +112,8 @@ services:
     image: traefik:v3.0
     container_name: traefik-webhook-proxy
     ports:
-      - "9443:443"   # HTTPS for webhook traffic (unprivileged host port)
-      - "8080:8080" # Traefik dashboard
+      - '${TRAEFIK_PORT:-9443}:443'   # HTTPS for webhook traffic (unprivileged host port)
+      - '${TRAEFIK_DASHBOARD_PORT:-8080}:8080' # Traefik dashboard
     volumes:
       - k3s-certs:/certs:ro # Access to webhook certificates
       - k3s-certs:/etc/traefik/certs:ro # Mount certificates for Traefik TLS
@@ -250,7 +250,7 @@ services:
       # Disable built-in traefik to avoid conflicts with our custom Traefik
       - --disable=traefik
     ports:
-      - "6443:6443"  # Kubernetes API server port
+      - '${K3S_API_SERVER_PORT:-6443}:6443'  # Kubernetes API server port
     volumes:
       - k3s-data:/var/lib/rancher/k3s # Persistence for K3s data (including etcd)
       - k3s-certs:/etc/kubernetes/pki:ro # Mount certificates from shared volume

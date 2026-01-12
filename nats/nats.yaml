@@ -2,10 +2,10 @@ services:
   nats:
     image: nats:latest
     ports:
-      - '4222:4222'  # Client connections
-      - '8222:8222'  # HTTP monitoring
-      - '6222:6222'  # Routing port for clustering
+      - '${NATS_PORT:-4222}:4222'  # Client connections
+      - '${NATS_HTTP_PORT:-8222}:8222'  # HTTP monitoring
+      - '${NATS_ROUTING_PORT:-6222}:6222'  # Routing port for clustering
     command: >
-      --http_port 8222
+      --http_port ${NATS_HTTP_PORT:-8222} --port ${NATS_PORT:-4222}
 
 volumes: {}

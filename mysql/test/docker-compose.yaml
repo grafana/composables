@@ -1,0 +1,4 @@
+services:
+  noop:
+    image: alpine:latest
+    command: /bin/sleep infinity

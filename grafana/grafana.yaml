@@ -9,7 +9,7 @@ services:
     container_name: 'grafana'
     user: root
     ports:
-      - '3000:3000'
+      - '${GRAFANA_PORT:-3000}:3000'
     environment:
       GF_DEFAULT_APP_MODE: development
       # Authentication settings
@@ -17,7 +17,7 @@ services:
       GF_AUTH_MANAGED_SERVICE_ACCOUNTS_ENABLED: true
       
       # Server settings
-      GF_SERVER_ROOT_URL: http://localhost:3000
+      GF_SERVER_ROOT_URL: http://localhost:${GRAFANA_PORT:-3000}
       
       # Feature toggles for service model integration
       GF_FEATURE_TOGGLES_ENABLE: kubernetesDashboards,kubernetesDashboardsAPI,grafanaAPIServerEnsureKubectlAccess,kubernetesAggregator

@@ -2,6 +2,16 @@
 # Run with: tilt ci (from this directory)
 
 # ============================================================================
+# Environment Variables (configurable ports)
+# ============================================================================
+# The following environment variables can be set to customize ports:
+#   TRAEFIK_PORT           - Traefik HTTPS webhook port (default: 9443)
+#   TRAEFIK_DASHBOARD_PORT - Traefik dashboard port (default: 8080)
+#   K3S_API_SERVER_PORT    - K3s API server port (default: 6443)
+#
+# Example: TRAEFIK_PORT=9444 K3S_API_SERVER_PORT=6444 tilt ci
+
+# ============================================================================
 # Function Definitions (copied from parent for testing)
 # ============================================================================
 

@@ -1,52 +1,49 @@
-.PHONY: test test-all list-components
+# Find all directories containing both a Tiltfile and a Makefile
+SUBDIRS := $(patsubst %/,%,$(dir $(wildcard */Makefile)))
 
-# Find all directories containing a Tiltfile
-COMPONENTS := $(dir $(wildcard */Tiltfile))
+# ANSI color codes
+GREEN := \033[0;32m
+RED := \033[0;31m
+YELLOW := \033[0;33m
+BLUE := \033[0;34m
+NC := \033[0m
 
-# Test all components
-test-all:
-	@echo "Testing all composables components..."
-	@for dir in $(COMPONENTS); do \
-		echo ""; \
-		echo "=========================================="; \
-		echo "Testing: $$dir"; \
-		echo "=========================================="; \
-		cd $$dir && tilt ci && tilt down; \
-		if [ $$? -eq 0 ]; then \
-			echo "✅ $$dir PASSED"; \
-		else \
-			echo "❌ $$dir FAILED"; \
-			exit 1; \
-		fi; \
-		cd ..; \
-	done
-	@echo ""
-	@echo "=========================================="
-	@echo "✅ All components tested successfully!"
-	@echo "=========================================="
+.PHONY: test list-components
 
-# Test a specific component
-# Usage: make test COMPONENT=nats
+# Test all composables - runs all tests and shows summary at end
 test:
-	@if [ -z "$(COMPONENT)" ]; then \
-		echo "Error: COMPONENT not specified"; \
-		echo "Usage: make test COMPONENT=nats"; \
+	@printf "Running tests for $(words $(SUBDIRS)) composables...\n"
+	@printf "\n"
+	@failed=""; \
+	for dir in $(SUBDIRS); do \
+		printf "$(BLUE)Testing$(NC) %-30s ... " "$$dir"; \
+		if $(MAKE) -C $$dir test > /tmp/test-$$dir.log 2>&1; then \
+			printf "$(GREEN)✓ PASS$(NC)\n"; \
+			rm -f /tmp/test-$$dir.log; \
+		else \
+			printf "$(RED)✗ FAIL$(NC)\n"; \
+			failed="$$failed $$dir"; \
+		fi; \
+	done; \
+	printf "\n"; \
+	if [ -n "$$failed" ]; then \
+		printf "$(RED)━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$(NC)\n"; \
+		printf "$(RED)Failed tests:$$failed$(NC)\n"; \
+		printf "$(RED)━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$(NC)\n"; \
+		for dir in $$failed; do \
+			printf "\n"; \
+			printf "$(RED)───── Output from $$dir ─────$(NC)\n"; \
+			cat /tmp/test-$$dir.log 2>/dev/null || printf "Log missing\n"; \
+			rm -f /tmp/test-$$dir.log; \
+		done; \
+		printf "\n"; \
+		printf "$(RED)━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$(NC)\n"; \
 		exit 1; \
+	else \
+		printf "$(GREEN)✓ All $(words $(SUBDIRS)) tests passed!$(NC)\n"; \
 	fi
-	@if [ ! -d "$(COMPONENT)" ]; then \
-		echo "Error: Component '$(COMPONENT)' not found"; \
-		exit 1; \
-	fi
-	@if [ ! -f "$(COMPONENT)/Tiltfile" ]; then \
-		echo "Error: No Tiltfile found in '$(COMPONENT)'"; \
-		exit 1; \
-	fi
-	@echo "Testing component: $(COMPONENT)"
-	@cd $(COMPONENT) && tilt ci && tilt down
 
 # List all components
 list-components:
 	@echo "Available components:"
-	@for dir in $(COMPONENTS); do \
-		echo "  - $${dir%/}"; \
-	done
+	@$(foreach dir,$(SUBDIRS),echo "  - $(dir)";)

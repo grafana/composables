@@ -1,0 +1,34 @@
+COMPOSABLES_URL = os.getenv('COMPOSABLES_URL', 'file://' + os.path.abspath(os.path.dirname(__file__) + '/../..'))
+COMPOSE_COMPOSER_URL = os.getenv('COMPOSE_COMPOSER_URL', 'https://github.com/grafana/tilt-extensions')
+COMPOSE_COMPOSER_REF = os.getenv('COMPOSE_COMPOSER_REF', 'compose-composer')
+
+# Set up extension repo for standalone mode only
+if __file__ == config.main_path:
+    v1alpha1.extension_repo(name='grafana-tilt-extensions', url=COMPOSE_COMPOSER_URL, ref=COMPOSE_COMPOSER_REF)
+    v1alpha1.extension(name='compose_composer', repo_name='grafana-tilt-extensions', repo_path='compose_composer')
+
+load('ext://compose_composer', 'cc_composable', 'cc_local_composable', 'cc_generate_master_compose', 'cc_docker_compose', 'cc_parse_cli_plugins')
+
+prometheus = cc_composable(name='prometheus', url=COMPOSABLES_URL, labels=['observability'])
+
+def cc_get_plugin():
+    return cc_local_composable(
+        'prometheus',
+        os.path.dirname(__file__) + '/docker-compose.yaml',
+        prometheus,
+        labels=['observability']
+    )
+
+# ============================================================================
+# Standalone Mode
+# ============================================================================
+
+# If loaded directly via 'tilt up', run through compose_composer pipeline
+if __file__ == config.main_path:
+    # Generate master compose - this handles all the compose_composer logic
+    master = cc_generate_master_compose(
+        cc_get_plugin(),
+        cc_parse_cli_plugins(os.path.dirname(__file__)),
+        staging_dir=os.path.dirname(__file__) + '/.compose-stage',
+    )
+    cc_docker_compose(master, wait=True)

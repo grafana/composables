@@ -4,12 +4,7 @@
 # Exports:
 #   cc_get_plugin()    - Returns plugin struct for compose_composer
 
-# Set up extension repo for standalone mode only
-if __file__ == config.main_path:
-    v1alpha1.extension_repo(name='grafana-tilt-extensions', url='https://github.com/grafana/tilt-extensions', ref='compose-composer')
-    v1alpha1.extension(name='compose_composer', repo_name='grafana-tilt-extensions', repo_path='compose_composer')
-
-load('ext://compose_composer', 'cc_local_composable')
+load('ext://compose_composer', 'cc_local_composable', 'cc_generate_master_compose', 'cc_docker_compose', 'cc_parse_cli_plugins')
 
 def cc_get_plugin():
     """Returns the plugin struct for compose_composer."""
@@ -19,13 +14,3 @@ def cc_get_plugin():
         labels=['infra'],
     )
 
-# ============================================================================
-# Standalone Mode
-# ============================================================================
-
-# If loaded directly via 'tilt up', run the compose file
-if __file__ == config.main_path:
-    docker_compose(
-        os.path.dirname(__file__) + '/rabbitmq.yaml',
-        env_file=os.path.dirname(__file__) + '/../../.env.docker-compose'
-    )
