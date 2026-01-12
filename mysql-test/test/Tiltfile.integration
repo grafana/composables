@@ -9,6 +9,8 @@ if __file__ == config.main_path:
 
 load('ext://compose_composer', 'cc_composable', 'cc_local_composable', 'cc_generate_master_compose', 'cc_docker_compose', 'cc_parse_cli_plugins')
 
+allow_k8s_contexts(k8s_context())
+
 mysql_test = cc_composable(name='mysql-test', url=COMPOSABLES_URL, labels=['sql-test'])
 
 def cc_get_plugin():
