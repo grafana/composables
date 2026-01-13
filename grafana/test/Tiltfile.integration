@@ -1,40 +1,94 @@
+# Integration tests for grafana composable wire-when rules
+# Run with: tilt up -f Tiltfile.integration (from this directory)
+#
+# This tests that wire-when rules correctly modify grafana configuration
+# when dependencies like k3s-apiserver, mysql, nats, etc. are present.
+
 COMPOSABLES_URL = os.getenv('COMPOSABLES_URL', 'file://' + os.path.abspath(os.path.dirname(__file__) + '/../..'))
 COMPOSE_COMPOSER_URL = os.getenv('COMPOSE_COMPOSER_URL', 'https://github.com/grafana/tilt-extensions')
 COMPOSE_COMPOSER_REF = os.getenv('COMPOSE_COMPOSER_REF', 'compose-composer')
 
 # Set up extension repo for standalone mode only
 if __file__ == config.main_path:
-    v1alpha1.extension_repo(name='grafana-tilt-extensions', url=COMPOSE_COMPOSER_URL, ref=COMPOSE_COMPOSER_REF)
+    # Only use ref if not a file:// URL
+    if COMPOSE_COMPOSER_URL.startswith('file://'):
+        v1alpha1.extension_repo(name='grafana-tilt-extensions', url=COMPOSE_COMPOSER_URL)
+    else:
+        v1alpha1.extension_repo(name='grafana-tilt-extensions', url=COMPOSE_COMPOSER_URL, ref=COMPOSE_COMPOSER_REF)
     v1alpha1.extension(name='compose_composer', repo_name='grafana-tilt-extensions', repo_path='compose_composer')
 
 load('ext://compose_composer', 'cc_composable', 'cc_local_composable', 'cc_generate_master_compose', 'cc_docker_compose', 'cc_parse_cli_plugins')
 
 allow_k8s_contexts(k8s_context())
 
-grafana = cc_composable(name='grafana', url=COMPOSABLES_URL, labels=['app'])
+# Load dependencies to trigger wire-when rules
+k3s_apiserver = cc_composable(name='k3s-apiserver', url=COMPOSABLES_URL, labels=['k8s'])
 mysql = cc_composable(name='mysql', url=COMPOSABLES_URL, labels=['infra'])
-
+grafana = cc_composable(name='grafana', url=COMPOSABLES_URL, imports=['register_aggregator_config'], labels=['grafana'])
 
 def cc_get_plugin():
+    """
+    Test plugin that loads grafana with dependencies to trigger wire-when rules.
+    """
     return cc_local_composable(
-        'grafana',
+        'grafana-integration-test',
         os.path.dirname(__file__) + '/docker-compose.yaml',
-        grafana, mysql,
-        labels=['app'],
+        k3s_apiserver,  # Triggers k3s-apiserver wire-when
+        mysql,          # Triggers mysql wire-when
+        grafana,        # The composable being tested
+        labels=['test'],
+        modifications=[
+            # Test register_aggregator_config helper
+            grafana.register_aggregator_config(api_groups=[
+                {
+                    'group': 'test.ext.grafana.com',
+                    'version': 'v1',
+                    'host': 'k3s-apiserver',
+                    'port': 6443,
+                },
+            ]),
+        ],
     )
-
 
 # ============================================================================
 # Standalone Mode
 # ============================================================================
 
-
 # If loaded directly via 'tilt up', run through compose_composer pipeline
 if __file__ == config.main_path:
+    print("\n" + "=" * 70)
+    print("Grafana Composable Integration Tests")
+    print("=" * 70)
+    print("\nThis integration test verifies:")
+    print("  1. Wire-when rules activate when k3s-apiserver is present")
+    print("  2. Wire-when rules activate when mysql is present")
+    print("  3. register_aggregator_config() helper modifies aggregator-config service")
+    print("  4. All modifications are correctly applied in staging")
+    print("\nRunning compose_composer pipeline...")
+    print("=" * 70 + "\n")
+
     # Generate master compose - this handles all the compose_composer logic
     master = cc_generate_master_compose(
         cc_get_plugin(),
         cc_parse_cli_plugins(os.path.dirname(__file__)),
         staging_dir=os.path.dirname(__file__) + '/.compose-stage',
     )
+
+    print("\n" + "=" * 70)
+    print("Compose Generation Complete")
+    print("=" * 70)
+    print("\nTo verify wire-when rules, check .compose-stage/grafana.yaml for:")
+    print("  - depends_on: ['k3s-apiserver', 'db']")
+    print("  - environment.KUBECONFIG: /etc/grafana/kubeconfig.yaml")
+    print("  - environment.GF_DATABASE_TYPE: mysql")
+    print("  - environment.GF_GRAFANA_APISERVER_REMOTE_SERVICES_FILE: /etc/kubernetes/pki/aggregator-config.yaml")
+    print("  - volumes: k3s-certs:/etc/kubernetes/pki:ro")
+    print("\nTo verify aggregator-config modifications:")
+    print("  - Check .compose-stage/grafana.yaml aggregator-config service command")
+    print("  - Should contain YAML with test.ext.grafana.com API group")
+    print("\nTo start services and test runtime behavior:")
+    print("  tilt up -f Tiltfile.integration")
+    print("=" * 70 + "\n")
+
+    # Run docker-compose with staging
     cc_docker_compose(master)

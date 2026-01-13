@@ -1,0 +1,173 @@
+# Grafana Composable Tests
+
+Comprehensive unit tests for the grafana composable helper functions.
+
+## Running Tests
+
+```bash
+cd composables/grafana/test
+tilt ci
+```
+
+The tests will run automatically during Tiltfile evaluation and exit with success or failure.
+
+## Test Coverage
+
+### provision_plugins() Helper
+
+Tests for the plugin provisioning helper function:
+
+- ✓ Empty list returns empty dict
+- ✓ Single plugin path generates correct structure
+- ✓ Multiple plugin paths create unique mount points
+- ✓ Volume mount format is correct (path:mount:ro)
+- ✓ Mount points are sequential (plugin-0, plugin-1, etc.)
+
+**Coverage:** All positive test cases and edge cases
+
+### register_aggregator_config() Helper
+
+Tests for the API aggregation configuration helper:
+
+- ✓ Single API group configuration
+- ✓ YAML format correctness
+- ✓ Multiple API groups configuration
+- ✓ Default values (host='k3s-apiserver', port=6443)
+- ✓ Custom host and port values
+
+**Error Validation:** The helper includes fail() calls for:
+- Empty api_groups list
+- Non-list api_groups parameter
+- Non-dict items in api_groups
+- Missing required fields (group, version)
+
+These error cases are validated at runtime when the helper is called with invalid input.
+
+## Test Structure
+
+The test suite follows the pattern established by `composables/k3s-apiserver/test/`:
+
+1. **Function Definitions** - Helper functions copied for testing
+2. **Test Helpers** - Assertion utilities (assert_equals, assert_true, assert_in, assert_contains)
+3. **Test Functions** - Individual test cases for each scenario
+4. **Test Runner** - Executes all tests and reports results
+
+## Adding New Tests
+
+To add a new test:
+
+1. Define a test function with descriptive name:
+   ```python
+   def test_my_new_scenario():
+       """Test description."""
+       result = provision_plugins(...)
+       assert_equals(result, expected)
+       print("  [PASS] test_my_new_scenario")
+   ```
+
+2. Add the test to `run_tests()`:
+   ```python
+   def run_tests():
+       # ... existing tests ...
+       test_my_new_scenario()
+   ```
+
+3. Run tests to verify:
+   ```bash
+   tilt ci
+   ```
+
+## Integration Tests
+
+For integration tests that verify compose_composer behavior with actual Docker services:
+
+1. See `service-model/` for runtime verification examples
+2. Use `tilt up` to start services and verify:
+   - Service dependencies
+   - Volume mounts
+   - Environment variables
+   - Configuration files
+
+Example integration test workflow:
+```bash
+cd service-model
+export COMPOSABLES_URL='file:///path/to/composables'
+tilt up
+
+# Verify aggregator-config service
+docker compose logs aggregator-config
+
+# Verify config file
+docker compose exec grafana cat /etc/kubernetes/pki/aggregator-config.yaml
+
+# Verify Grafana loads config
+docker compose logs grafana | grep -i "apiserver\|aggregat"
+```
+
+## Wire-When Integration Tests
+
+Testing declarative wiring rules requires loading dependencies:
+
+1. **mysql trigger**: Test database configuration
+   ```bash
+   # Load grafana with mysql dependency
+   tilt up
+   # Verify GF_DATABASE_TYPE, GF_DATABASE_HOST, etc.
+   ```
+
+2. **k3s-apiserver trigger**: Test k8s integration
+   ```bash
+   # Load grafana with k3s-apiserver
+   tilt up
+   # Verify KUBECONFIG, cert mounts, aggregator env vars
+   ```
+
+3. **nats trigger**: Test NATS integration
+   ```bash
+   # Load grafana with nats
+   tilt up
+   # Verify DASH_PKG_NATS_SERVER_ADDRESS
+   ```
+
+See `composables/grafana/Tiltfile` for complete wire-when rules.
+
+## Test Results
+
+Current test status: **All tests passing** ✓
+
+```
+=== provision_plugins Tests ===
+  [PASS] test_provision_plugins_empty_list
+  [PASS] test_provision_plugins_single_path
+  [PASS] test_provision_plugins_multiple_paths
+  [PASS] test_provision_plugins_volume_format
+  [PASS] test_provision_plugins_unique_mount_points
+
+=== register_aggregator_config Tests ===
+  [PASS] test_register_aggregator_config_single_group
+  [PASS] test_register_aggregator_config_yaml_format
+  [PASS] test_register_aggregator_config_multiple_groups
+  [PASS] test_register_aggregator_config_default_host_port
+  [PASS] test_register_aggregator_config_custom_host_port
+
+==================================================
+All tests passed!
+==================================================
+```
+
+## Future Test Enhancements
+
+Potential areas for expanded test coverage:
+
+1. **Multi-orchestrator config merging** - When implemented, test that multiple plugins can register API groups that get merged into a single config
+2. **get_wire_when() validation** - Verify wire-when rules produce correct compose overrides
+3. **Runtime behavior tests** - Automated tests that start containers and verify runtime behavior
+4. **Performance tests** - Test behavior with large numbers of API groups or plugin paths
+5. **Error recovery tests** - Test graceful handling of malformed YAML or missing files
+
+## Related Documentation
+
+- `composables/grafana/Tiltfile` - Helper function implementations
+- `composables/grafana/grafana.yaml` - Service definitions
+- `composables/k3s-apiserver/test/` - Reference test implementation
+- `service-model/` - Integration test examples
