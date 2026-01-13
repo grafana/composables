@@ -4,12 +4,29 @@ Comprehensive unit tests for the grafana composable helper functions.
 
 ## Running Tests
 
+### Unit Tests
+
 ```bash
 cd composables/grafana/test
-tilt ci
+make test
+# or: tilt ci
 ```
 
-The tests will run automatically during Tiltfile evaluation and exit with success or failure.
+Unit tests run automatically during Tiltfile evaluation and exit with success or failure.
+
+### Integration Tests
+
+```bash
+cd composables/grafana/test
+make test-integration
+# or: tilt ci -f Tiltfile.integration
+```
+
+Integration tests verify the compose_composer pipeline and staged files:
+- Loads grafana with k3s-apiserver and mysql dependencies
+- Verifies wire-when rules activate correctly
+- Checks all expected values in staged grafana.yaml
+- Fails if any expected configuration is missing
 
 ## Test Coverage
 
@@ -77,18 +94,40 @@ To add a new test:
    tilt ci
    ```
 
-## Integration Tests
+## Integration Test Details
 
-For integration tests that verify compose_composer behavior with actual Docker services:
+The integration test (`Tiltfile.integration`) automatically verifies:
 
-1. See `service-model/` for runtime verification examples
-2. Use `tilt up` to start services and verify:
-   - Service dependencies
-   - Volume mounts
-   - Environment variables
-   - Configuration files
+**Wire-When Rules Activation:**
+- ✓ grafana depends on db (mysql dependency)
+- ✓ grafana depends on k3s-apiserver (k8s dependency)
 
-Example integration test workflow:
+**MySQL Wire-When Configuration:**
+- ✓ GF_DATABASE_TYPE: mysql
+- ✓ GF_DATABASE_HOST: db:3306
+- ✓ GF_DATABASE_NAME: grafana
+- ✓ GF_SESSION_PROVIDER: mysql
+
+**K8s Wire-When Configuration:**
+- ✓ KUBECONFIG: /etc/grafana/kubeconfig.yaml
+- ✓ GF_GRAFANA_APISERVER_PROXY_CLIENT_CERT_FILE configured
+- ✓ GF_GRAFANA_APISERVER_PROXY_CLIENT_KEY_FILE configured
+- ✓ GF_GRAFANA_APISERVER_REMOTE_SERVICES_FILE: /etc/kubernetes/pki/aggregator-config.yaml
+- ✓ k3s-certs volume mounted at /etc/kubernetes/pki:ro
+
+**Helper Modifications:**
+- ✓ aggregator-config service modified by register_aggregator_config()
+- ✓ API group test.ext.grafana.com registered
+- ✓ API version v1 registered
+- ✓ API host k3s-apiserver configured
+- ✓ API port 6443 configured
+
+The test reads the staged `.compose-stage/grafana.yaml` file and fails if any expected value is missing. This ensures wire-when rules and helper modifications work correctly.
+
+### Runtime Verification
+
+To verify runtime behavior with actual services:
+
 ```bash
 cd service-model
 export COMPOSABLES_URL='file:///path/to/composables'
