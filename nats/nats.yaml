@@ -6,6 +6,8 @@ services:
       - '${NATS_HTTP_PORT:-8222}:8222'  # HTTP monitoring
       - '${NATS_ROUTING_PORT:-6222}:6222'  # Routing port for clustering
     command: >
-      --http_port ${NATS_HTTP_PORT:-8222} --port ${NATS_PORT:-4222}
+      --http_port ${NATS_HTTP_PORT:-8222} --port ${NATS_PORT:-4222} --jetstream
+    # Note: healthcheck removed - NATS image is scratch-based with no curl/wget
+    # Dependent services should use 'condition: service_started' instead of 'service_healthy'
 
 volumes: {}
