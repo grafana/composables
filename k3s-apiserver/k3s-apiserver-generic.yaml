@@ -331,6 +331,47 @@ services:
         echo 'CRD loading complete'
     restart: "no"
 
+  # Generic admission webhook setup service - use register_admission_config() to customize
+  admission-setup:
+    image: bitnami/kubectl:latest
+    depends_on:
+      - crd-loader  # Ensures CRDs are loaded first
+    volumes:
+      - k3s-output:/output:ro
+      - k3s-certs:/certs:ro
+      # admission-config volume mounted by register_admission_config() helper
+    entrypoint: ["/bin/sh"]
+    command:
+      - "-c"
+      - |
+        echo 'Admission setup starting...'
+
+        echo 'Waiting for kubeconfig to be available...'
+        while [ ! -f /output/kubeconfig.yaml ]; do
+          echo 'Kubeconfig not yet available, waiting...'
+          sleep 2
+        done
+        echo 'Creating modified kubeconfig for container networking...'
+        sed 's/127\.0\.0\.1:6443/k3s-apiserver:6443/g' /output/kubeconfig.yaml > /tmp/kubeconfig-internal.yaml
+
+        echo 'Waiting for TLS certificate to be available...'
+        while [ ! -f /certs/tls/tls.crt ]; do
+          echo 'TLS certificate not yet available, waiting...'
+          sleep 2
+        done
+
+        echo 'Generating caBundle from current TLS certificate...'
+        CA_BUNDLE=$$(cat /certs/tls/tls.crt | base64 | tr -d '\n')
+        echo "CA Bundle generated (length: $$(echo $$CA_BUNDLE | wc -c) chars)"
+
+        echo 'Patching admission config with current caBundle...'
+        sed "s|caBundle: .*|caBundle: $$CA_BUNDLE|g" /admission/config.yaml > /tmp/admission-patched.yaml
+
+        echo 'Loading admission webhook configuration...'
+        kubectl --kubeconfig=/tmp/kubeconfig-internal.yaml apply -f /tmp/admission-patched.yaml
+        echo 'Admission webhook configuration loaded successfully'
+    restart: "no"
+
 volumes:
   k3s-data:
   k3s-certs:
