@@ -14,31 +14,36 @@ def provision_plugins(plugin_paths=[]):
     Helper function to mount plugin provisioning files into Grafana.
 
     Args:
-        plugin_paths: List of directory paths containing plugin provisioning files
-                     Each path should contain YAML files for plugin configuration
+        plugin_paths: List of directory paths containing plugin provisioning files.
+                     Each path should contain YAML files for plugin configuration.
+                     Note: Grafana reads files directly from /etc/grafana/provisioning/plugins/
+                     without recursing into subdirectories, so only ONE path is supported.
 
     Returns:
-        Dict with compose_overrides to mount the plugin directories
+        Dict with compose_overrides to mount the plugin directory
 
     Example:
         grafana.provision_plugins([
-            '/path/to/irm/dev/provisioning_files/oncall',
-            '/path/to/irm/dev/provisioning_files/incident',
+            '/path/to/irm/dev/provisioning_files',
         ])
     """
     if not plugin_paths:
         return {}
 
-    # Build volume mounts for each plugin path
-    volumes = []
-    for i, path in enumerate(plugin_paths):
-        # Mount each directory to a unique location in grafana provisioning
-        volumes.append(path + ':/etc/grafana/provisioning/plugins/plugin-' + str(i) + ':ro')
+    # Grafana only reads provisioning files directly in /etc/grafana/provisioning/plugins/
+    # It does not recurse into subdirectories, so we can only support one plugin path
+    if len(plugin_paths) > 1:
+        fail("provision_plugins() only supports ONE plugin_path. " +
+             "Grafana does not read subdirectories in provisioning/plugins/. " +
+             "Please combine all provisioning YAML files into a single directory.")
 
+    # Mount the single directory directly to /etc/grafana/provisioning/plugins/
     return {
         'services': {
             'grafana': {
-                'volumes': volumes,
+                'volumes': [
+                    plugin_paths[0] + ':/etc/grafana/provisioning/plugins:ro',
+                ],
             },
         },
     }
