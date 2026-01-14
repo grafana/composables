@@ -113,12 +113,14 @@ def register_aggregator_config(api_groups):
         yaml_lines.append("  host: " + host)
         yaml_lines.append("  port: " + str(port))
 
-    yaml_content = "\\n".join(yaml_lines)
+    yaml_content = "\n".join(yaml_lines)
 
-    # Return compose_overrides to customize the aggregator-config service
+    # Return compose_overrides to create/customize the aggregator-config service
     return {
         'services': {
             'aggregator-config': {
+                'image': 'alpine:latest',
+                'entrypoint': ['/bin/sh'],
                 'command': [
                     '-c',
                     '''
@@ -130,6 +132,9 @@ echo 'Aggregator config created successfully'
 cat /certs/aggregator-config.yaml
                     ''' % yaml_content,
                 ],
+                'depends_on': ['k3s-apiserver'],
+                'volumes': ['k3s-certs:/certs'],
+                'restart': 'no',
             },
         },
     }

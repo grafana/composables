@@ -7,6 +7,7 @@
 #   register_crds()              - Generate compose_overrides to mount CRDs into crd-loader
 #   register_webhook()           - Generate compose_overrides to configure webhook operators
 #   register_admission_config()  - Generate compose_overrides to register admission webhooks
+#   register_roles()             - Generate compose_overrides to apply RBAC roles and bindings
 #   copy_kubeconfig_local()      - Create local_resource to copy kubeconfig to local path
 
 load('ext://compose_composer', 'cc_local_composable', 'cc_generate_master_compose', 'cc_docker_compose', 'cc_parse_cli_plugins')
@@ -126,9 +127,22 @@ def register_webhook(operator_specs):
 
     webhook_operators_str = ','.join(operators)
 
+    # Build network aliases for Traefik to respond to k8s service DNS names
+    # Add all DNS variations that k8s might use to resolve services
+    network_aliases = []
+    for spec in operator_specs:
+        name = spec['name']
+        namespace = spec.get('namespace', 'default')
+        # Add all k8s service DNS variations as network aliases
+        network_aliases.append(name + '.' + namespace + '.svc.cluster.local')
+        network_aliases.append(name + '.' + namespace + '.svc')
+        network_aliases.append(name + '.' + namespace)
+        network_aliases.append(name)  # Short name within same namespace
+
     # Return compose_overrides that set WEBHOOK_OPERATORS environment variable
-    # This overrides the default in k3s-apiserver-generic.yaml
-    # Using dict format for environment ensures proper merging
+    # and configure Traefik network aliases for k8s service DNS resolution.
+    # When admission webhooks use the 'url' field (not 'service'), Kubernetes
+    # makes direct HTTPS requests via DNS, which resolves to Traefik via these aliases.
     return {
         'services': {
             'cert-provider': {
@@ -139,6 +153,11 @@ def register_webhook(operator_specs):
             'traefik': {
                 'environment': {
                     'WEBHOOK_OPERATORS': webhook_operators_str,
+                },
+                'networks': {
+                    'default': {
+                        'aliases': network_aliases,
+                    },
                 },
             },
         },
@@ -263,6 +282,90 @@ echo 'Admission webhook configuration loaded successfully'
         },
     }
 
+def register_roles(roles_yaml_path, resource_name_suffix='roles'):
+    """
+    Register RBAC roles and bindings from a YAML file.
+
+    This helper creates a roles-setup service that applies the RBAC configuration
+    to the k3s cluster using kubectl apply.
+
+    Args:
+        roles_yaml_path: Absolute path to the YAML file containing ClusterRoles,
+                        ClusterRoleBindings, Roles, and RoleBindings
+        resource_name_suffix: Suffix for the service name (default: 'roles')
+                             Creates service: 'roles-setup-{suffix}'
+
+    Returns:
+        Dict with compose_overrides structure for the roles-setup service
+
+    Example:
+        k3s = cc_composable(
+            name='k3s-apiserver',
+            url='...',
+            imports=['register_roles'],
+        )
+
+        def cc_get_plugin():
+            return cc_local_composable(
+                'my-app',
+                os.path.dirname(__file__) + '/docker-compose.yaml',
+                k3s,
+                modifications=[
+                    k3s.register_roles(
+                        roles_yaml_path=os.path.dirname(__file__) + '/local/roles.yaml',
+                        resource_name_suffix='labels'  # Creates 'roles-setup-labels'
+                    ),
+                ],
+            )
+    """
+    if type(roles_yaml_path) != 'string':
+        fail("roles_yaml_path must be a string, got: " + str(type(roles_yaml_path)))
+
+    if not roles_yaml_path:
+        fail("roles_yaml_path cannot be empty")
+
+    if not roles_yaml_path.startswith('/'):
+        fail("roles_yaml_path must be an absolute path, got: " + roles_yaml_path)
+
+    # Determine service name
+    service_name = 'roles-setup-' + resource_name_suffix
+
+    # Return compose_overrides to add roles-setup service with mounted config
+    return {
+        'services': {
+            service_name: {
+                'image': 'bitnami/kubectl:latest',
+                'depends_on': ['crd-loader'],
+                'volumes': [
+                    'k3s-output:/output:ro',
+                    'k3s-certs:/certs:ro',
+                    roles_yaml_path + ':/rbac/roles.yaml:ro',
+                ],
+                'entrypoint': ['/bin/sh'],
+                'command': [
+                    '-c',
+                    '''
+echo 'RBAC setup starting...'
+
+echo 'Waiting for kubeconfig to be available...'
+while [ ! -f /output/kubeconfig.yaml ]; do
+  echo 'Kubeconfig not yet available, waiting...'
+  sleep 2
+done
+
+echo 'Creating modified kubeconfig for container networking...'
+sed 's/127\\.0\\.0\\.1:6443/k3s-apiserver:6443/g' /output/kubeconfig.yaml > /tmp/kubeconfig-internal.yaml
+
+echo 'Loading RBAC roles and bindings...'
+kubectl --kubeconfig=/tmp/kubeconfig-internal.yaml apply -f /rbac/roles.yaml
+echo 'RBAC configuration loaded successfully'
+                    ''',
+                ],
+                'restart': 'no',
+            },
+        },
+    }
+
 def copy_kubeconfig_local(dest_path, resource_name='kubeconfig-copy'):
     """
     Creates a Tilt local_resource that waits for kubeconfig to be synced,
@@ -325,6 +428,7 @@ def k3s_test_exports():
         'register_crds': register_crds,
         'register_webhook': register_webhook,
         'register_admission_config': register_admission_config,
+        'register_roles': register_roles,
         'copy_kubeconfig_local': copy_kubeconfig_local,
     }
 
