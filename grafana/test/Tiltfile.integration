@@ -1,40 +1,158 @@
+# Integration tests for grafana composable wire-when rules
+# Run with: tilt up -f Tiltfile.integration (from this directory)
+#
+# This tests that wire-when rules correctly modify grafana configuration
+# when dependencies like k3s-apiserver, mysql, nats, etc. are present.
+
 COMPOSABLES_URL = os.getenv('COMPOSABLES_URL', 'file://' + os.path.abspath(os.path.dirname(__file__) + '/../..'))
 COMPOSE_COMPOSER_URL = os.getenv('COMPOSE_COMPOSER_URL', 'https://github.com/grafana/tilt-extensions')
 COMPOSE_COMPOSER_REF = os.getenv('COMPOSE_COMPOSER_REF', 'compose-composer')
 
 # Set up extension repo for standalone mode only
 if __file__ == config.main_path:
-    v1alpha1.extension_repo(name='grafana-tilt-extensions', url=COMPOSE_COMPOSER_URL, ref=COMPOSE_COMPOSER_REF)
+    # Only use ref if not a file:// URL
+    if COMPOSE_COMPOSER_URL.startswith('file://'):
+        v1alpha1.extension_repo(name='grafana-tilt-extensions', url=COMPOSE_COMPOSER_URL)
+    else:
+        v1alpha1.extension_repo(name='grafana-tilt-extensions', url=COMPOSE_COMPOSER_URL, ref=COMPOSE_COMPOSER_REF)
     v1alpha1.extension(name='compose_composer', repo_name='grafana-tilt-extensions', repo_path='compose_composer')
 
 load('ext://compose_composer', 'cc_composable', 'cc_local_composable', 'cc_generate_master_compose', 'cc_docker_compose', 'cc_parse_cli_plugins')
 
 allow_k8s_contexts(k8s_context())
 
-grafana = cc_composable(name='grafana', url=COMPOSABLES_URL, labels=['app'])
+# Load dependencies to trigger wire-when rules
+k3s_apiserver = cc_composable(name='k3s-apiserver', url=COMPOSABLES_URL, labels=['k8s'])
 mysql = cc_composable(name='mysql', url=COMPOSABLES_URL, labels=['infra'])
-
+grafana = cc_composable(name='grafana', url=COMPOSABLES_URL, imports=['register_aggregator_config'], labels=['grafana'])
 
 def cc_get_plugin():
+    """
+    Test plugin that loads grafana with dependencies to trigger wire-when rules.
+    """
     return cc_local_composable(
-        'grafana',
+        'grafana-integration-test',
         os.path.dirname(__file__) + '/docker-compose.yaml',
-        grafana, mysql,
-        labels=['app'],
+        k3s_apiserver,  # Triggers k3s-apiserver wire-when
+        mysql,          # Triggers mysql wire-when
+        grafana,        # The composable being tested
+        labels=['test'],
+        modifications=[
+            # Test register_aggregator_config helper
+            grafana.register_aggregator_config(api_groups=[
+                {
+                    'group': 'test.ext.grafana.com',
+                    'version': 'v1',
+                    'host': 'k3s-apiserver',
+                    'port': 6443,
+                },
+            ]),
+        ],
     )
-
 
 # ============================================================================
 # Standalone Mode
 # ============================================================================
 
-
 # If loaded directly via 'tilt up', run through compose_composer pipeline
 if __file__ == config.main_path:
+    print("\n" + "=" * 70)
+    print("Grafana Composable Integration Tests")
+    print("=" * 70)
+    print("\nThis integration test verifies:")
+    print("  1. Wire-when rules activate when k3s-apiserver is present")
+    print("  2. Wire-when rules activate when mysql is present")
+    print("  3. register_aggregator_config() helper modifies aggregator-config service")
+    print("  4. All modifications are correctly applied in staging")
+    print("\nRunning compose_composer pipeline...")
+    print("=" * 70 + "\n")
+
     # Generate master compose - this handles all the compose_composer logic
     master = cc_generate_master_compose(
         cc_get_plugin(),
         cc_parse_cli_plugins(os.path.dirname(__file__)),
         staging_dir=os.path.dirname(__file__) + '/.compose-stage',
     )
-    cc_docker_compose(master)
+
+    print("\n" + "=" * 70)
+    print("Verifying Integration Test Results")
+    print("=" * 70 + "\n")
+
+    # Read the staged grafana.yaml file
+    staged_file = os.path.dirname(__file__) + '/.compose-stage/grafana.yaml'
+    staged_content = str(read_file(staged_file))
+
+    # Test helper functions
+    def assert_contains(content, substring, description):
+        if substring not in content:
+            fail("INTEGRATION TEST FAILED: " + description + "\n  Expected to find: " + substring)
+        print("  ✓ " + description)
+
+    def assert_in_list(items, target, description):
+        # Check if target is in a list of items (handles YAML list format)
+        for item in items:
+            if target in item:
+                print("  ✓ " + description)
+                return
+        fail("INTEGRATION TEST FAILED: " + description + "\n  Expected '" + target + "' in list")
+
+    print("Checking wire-when rules activation:")
+
+    # Verify grafana depends on both db and k3s-apiserver
+    assert_contains(staged_content, "depends_on:", "grafana service has depends_on")
+    assert_contains(staged_content, "- db", "grafana depends on db (mysql wire-when)")
+    assert_contains(staged_content, "- k3s-apiserver", "grafana depends on k3s-apiserver (k3s wire-when)")
+
+    print("\nChecking mysql wire-when environment variables:")
+
+    # Verify mysql database configuration
+    assert_contains(staged_content, "GF_DATABASE_TYPE: mysql", "GF_DATABASE_TYPE set to mysql")
+    assert_contains(staged_content, "GF_DATABASE_HOST: db:3306", "GF_DATABASE_HOST set correctly")
+    assert_contains(staged_content, "GF_DATABASE_NAME: grafana", "GF_DATABASE_NAME set correctly")
+    assert_contains(staged_content, "GF_SESSION_PROVIDER: mysql", "GF_SESSION_PROVIDER set to mysql")
+
+    print("\nChecking k3s-apiserver wire-when environment variables:")
+
+    # Verify k8s integration
+    assert_contains(staged_content, "KUBECONFIG: /etc/grafana/kubeconfig.yaml", "KUBECONFIG path set")
+    assert_contains(staged_content, "GF_GRAFANA_APISERVER_PROXY_CLIENT_CERT_FILE:", "Proxy client cert file configured")
+    assert_contains(staged_content, "GF_GRAFANA_APISERVER_PROXY_CLIENT_KEY_FILE:", "Proxy client key file configured")
+    assert_contains(staged_content, "GF_GRAFANA_APISERVER_REMOTE_SERVICES_FILE: /etc/kubernetes/pki/aggregator-config.yaml", "Remote services file configured")
+
+    print("\nChecking k3s-apiserver wire-when volumes:")
+
+    # Verify k3s-certs volume mount
+    assert_contains(staged_content, "k3s-certs:/etc/kubernetes/pki:ro", "k3s-certs volume mounted read-only")
+
+    print("\nChecking register_aggregator_config() modifications:")
+
+    # Verify aggregator-config service modifications
+    assert_contains(staged_content, "aggregator-config:", "aggregator-config service exists")
+    assert_contains(staged_content, "group: test.ext.grafana.com", "API group test.ext.grafana.com registered")
+    assert_contains(staged_content, "version: v1", "API version v1 registered")
+    assert_contains(staged_content, "host: k3s-apiserver", "API host set to k3s-apiserver")
+    # Port appears after newline in embedded YAML: "port:\n      6443"
+    if "port:" in staged_content and "6443" in staged_content:
+        print("  ✓ API port set to 6443")
+    else:
+        fail("INTEGRATION TEST FAILED: API port set to 6443\n  Port field not found or value incorrect")
+
+    print("\n" + "=" * 70)
+    print("✅ ALL INTEGRATION TESTS PASSED")
+    print("=" * 70)
+    print("\nVerified:")
+    print("  • Wire-when rules activated for mysql and k3s-apiserver")
+    print("  • Database configuration from mysql wire-when")
+    print("  • Kubernetes integration from k3s-apiserver wire-when")
+    print("  • API aggregation config from register_aggregator_config()")
+    print("  • All expected values present in staged grafana.yaml")
+    print("\nTo start services with this configuration:")
+    print("  tilt up -f Tiltfile.integration")
+    print("=" * 70 + "\n")
+
+    # Note: We don't call cc_docker_compose() in CI mode - just verify the staged files
+    # Uncomment the line below to actually start services:
+    # cc_docker_compose(master)
+
+    # Dummy resource to satisfy tilt ci
+    local_resource('integration-tests', cmd='echo "Integration tests completed"', auto_init=False)

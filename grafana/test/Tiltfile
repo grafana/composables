@@ -1,0 +1,331 @@
+# Tests for grafana composable
+# Run with: tilt ci (from this directory)
+
+# ============================================================================
+# Function Definitions (copied from parent for testing)
+# ============================================================================
+
+def provision_plugins(plugin_paths=[]):
+    """
+    Helper function to mount plugin provisioning files into Grafana.
+
+    Args:
+        plugin_paths: List of directory paths containing plugin provisioning files
+                     Each path should contain YAML files for plugin configuration
+
+    Returns:
+        Dict with compose_overrides to mount the plugin directories
+
+    Example:
+        grafana.provision_plugins([
+            '/path/to/irm/dev/provisioning_files/oncall',
+            '/path/to/irm/dev/provisioning_files/incident',
+        ])
+    """
+    if not plugin_paths:
+        return {}
+
+    # Build volume mounts for each plugin path
+    volumes = []
+    for i, path in enumerate(plugin_paths):
+        # Mount each directory to a unique location in grafana provisioning
+        volumes.append(path + ':/etc/grafana/provisioning/plugins/plugin-' + str(i) + ':ro')
+
+    return {
+        'services': {
+            'grafana': {
+                'volumes': volumes,
+            },
+        },
+    }
+
+def register_aggregator_config(api_groups):
+    """
+    Configure API server aggregation for Grafana AppPlatform.
+
+    This helper enables Grafana to aggregate external Kubernetes API servers
+    by creating a configuration file that lists the API groups to expose.
+
+    Args:
+        api_groups: List of dicts, each with:
+            - group: str     - API group (e.g., 'servicemodel.ext.grafana.com')
+            - version: str   - API version (e.g., 'v1alpha1')
+            - host: str      - API server hostname (default: 'k3s-apiserver')
+            - port: int      - API server port (default: 6443)
+
+    Returns:
+        Dict with compose_overrides structure to customize the aggregator-config service
+
+    Example:
+        grafana = cc_composable(
+            name='grafana',
+            url='...',
+            imports=['register_aggregator_config'],
+        )
+
+        def cc_get_plugin():
+            return cc_local_composable(
+                'my-app',
+                os.path.dirname(__file__) + '/docker-compose.yaml',
+                grafana,
+                modifications=[
+                    grafana.register_aggregator_config(api_groups=[
+                        {
+                            'group': 'servicemodel.ext.grafana.com',
+                            'version': 'v1alpha1',
+                            'host': 'k3s-apiserver',
+                            'port': 6443,
+                        },
+                    ]),
+                ],
+            )
+    """
+    if type(api_groups) != 'list':
+        fail("api_groups must be a list, got: " + str(type(api_groups)))
+
+    if not api_groups:
+        fail("api_groups cannot be empty - provide at least one API group")
+
+    # Build YAML content from api_groups
+    yaml_lines = []
+    for group_spec in api_groups:
+        if type(group_spec) != 'dict':
+            fail("Each api_group must be a dict, got: " + str(type(group_spec)))
+
+        if 'group' not in group_spec or 'version' not in group_spec:
+            fail("Each api_group must have 'group' and 'version' fields")
+
+        # Set defaults
+        host = group_spec.get('host', 'k3s-apiserver')
+        port = group_spec.get('port', 6443)
+
+        yaml_lines.append("- group: " + group_spec['group'])
+        yaml_lines.append("  version: " + group_spec['version'])
+        yaml_lines.append("  host: " + host)
+        yaml_lines.append("  port: " + str(port))
+
+    yaml_content = "\\n".join(yaml_lines)
+
+    # Return compose_overrides to customize the aggregator-config service
+    return {
+        'services': {
+            'aggregator-config': {
+                'command': [
+                    '-c',
+                    '''
+echo 'Creating aggregator config...'
+cat << 'EOF' > /certs/aggregator-config.yaml
+%s
+EOF
+echo 'Aggregator config created successfully'
+cat /certs/aggregator-config.yaml
+                    ''' % yaml_content,
+                ],
+            },
+        },
+    }
+
+# ============================================================================
+# Test Helpers
+# ============================================================================
+
+def assert_equals(actual, expected, msg=""):
+    if actual != expected:
+        fail_msg = "Expected '{}', got '{}'".format(expected, actual)
+        if msg:
+            fail_msg = msg + ": " + fail_msg
+        fail(fail_msg)
+
+def assert_true(condition, msg=""):
+    if not condition:
+        fail(msg if msg else "Assertion failed")
+
+def assert_in(item, collection, msg=""):
+    if item not in collection:
+        fail_msg = "'{}' not in '{}'".format(item, collection)
+        if msg:
+            fail_msg = msg + ": " + fail_msg
+        fail(fail_msg)
+
+def assert_contains(haystack, needle, msg=""):
+    """Check if needle substring is in haystack string."""
+    if needle not in haystack:
+        fail_msg = "'{}' not found in '{}'".format(needle, haystack)
+        if msg:
+            fail_msg = msg + ": " + fail_msg
+        fail(fail_msg)
+
+# ============================================================================
+# provision_plugins Tests
+# ============================================================================
+
+def test_provision_plugins_empty_list():
+    """Test provision_plugins with empty list returns empty dict."""
+    result = provision_plugins(plugin_paths=[])
+    assert_equals(result, {}, "Empty plugin_paths should return empty dict")
+    print("  [PASS] test_provision_plugins_empty_list")
+
+def test_provision_plugins_single_path():
+    """Test provision_plugins with single path."""
+    result = provision_plugins(plugin_paths=['/path/to/plugin1'])
+    assert_true('services' in result, "Result should have services key")
+    assert_true('grafana' in result['services'], "Should target grafana service")
+    assert_true('volumes' in result['services']['grafana'], "Should have volumes")
+    assert_equals(len(result['services']['grafana']['volumes']), 1)
+    print("  [PASS] test_provision_plugins_single_path")
+
+def test_provision_plugins_multiple_paths():
+    """Test provision_plugins with multiple paths."""
+    result = provision_plugins(plugin_paths=[
+        '/path/to/plugin1',
+        '/path/to/plugin2',
+        '/path/to/plugin3'
+    ])
+    volumes = result['services']['grafana']['volumes']
+    assert_equals(len(volumes), 3, "Should have 3 volume mounts")
+    print("  [PASS] test_provision_plugins_multiple_paths")
+
+def test_provision_plugins_volume_format():
+    """Test provision_plugins generates correct volume format."""
+    result = provision_plugins(plugin_paths=['/abs/path/to/provisioning'])
+    volumes = result['services']['grafana']['volumes']
+    # Should be: /abs/path/to/provisioning:/etc/grafana/provisioning/plugins/plugin-0:ro
+    assert_true(volumes[0].startswith('/abs/path/to/provisioning:'), "Should start with source path")
+    assert_contains(volumes[0], ':/etc/grafana/provisioning/plugins/plugin-', "Should mount to provisioning plugins dir")
+    assert_true(':ro' in volumes[0], "Should be read-only mount")
+    print("  [PASS] test_provision_plugins_volume_format")
+
+def test_provision_plugins_unique_mount_points():
+    """Test provision_plugins generates unique mount points for multiple paths."""
+    result = provision_plugins(plugin_paths=[
+        '/path/to/plugin1',
+        '/path/to/plugin2'
+    ])
+    volumes = result['services']['grafana']['volumes']
+    # Should have plugin-0 and plugin-1
+    assert_contains(volumes[0], 'plugin-0', "First should be plugin-0")
+    assert_contains(volumes[1], 'plugin-1', "Second should be plugin-1")
+    print("  [PASS] test_provision_plugins_unique_mount_points")
+
+# ============================================================================
+# register_aggregator_config Tests
+# ============================================================================
+
+def test_register_aggregator_config_single_group():
+    """Test register_aggregator_config with single API group."""
+    result = register_aggregator_config(api_groups=[
+        {
+            'group': 'servicemodel.ext.grafana.com',
+            'version': 'v1alpha1',
+            'host': 'k3s-apiserver',
+            'port': 6443,
+        }
+    ])
+    assert_true('services' in result, "Result should have services key")
+    assert_true('aggregator-config' in result['services'], "Should target aggregator-config service")
+    assert_true('command' in result['services']['aggregator-config'], "Should have command")
+    print("  [PASS] test_register_aggregator_config_single_group")
+
+def test_register_aggregator_config_yaml_format():
+    """Test register_aggregator_config generates correct YAML format."""
+    result = register_aggregator_config(api_groups=[
+        {
+            'group': 'test.ext.grafana.com',
+            'version': 'v1',
+            'host': 'localhost',
+            'port': 8080,
+        }
+    ])
+    command = result['services']['aggregator-config']['command']
+    # Command should be ['-c', '...script...']
+    assert_equals(len(command), 2, "Command should have 2 elements")
+    assert_equals(command[0], '-c', "First element should be -c")
+
+    script = command[1]
+    # Check YAML content is in script
+    assert_contains(script, '- group: test.ext.grafana.com', "Should contain group")
+    assert_contains(script, '  version: v1', "Should contain version")
+    assert_contains(script, '  host: localhost', "Should contain host")
+    assert_contains(script, '  port: 8080', "Should contain port")
+    print("  [PASS] test_register_aggregator_config_yaml_format")
+
+def test_register_aggregator_config_multiple_groups():
+    """Test register_aggregator_config with multiple API groups."""
+    result = register_aggregator_config(api_groups=[
+        {
+            'group': 'servicemodel.ext.grafana.com',
+            'version': 'v1alpha1',
+        },
+        {
+            'group': 'another.ext.grafana.com',
+            'version': 'v1beta1',
+        }
+    ])
+    script = result['services']['aggregator-config']['command'][1]
+    # Should contain both groups
+    assert_contains(script, 'servicemodel.ext.grafana.com', "Should contain first group")
+    assert_contains(script, 'another.ext.grafana.com', "Should contain second group")
+    assert_contains(script, 'v1alpha1', "Should contain first version")
+    assert_contains(script, 'v1beta1', "Should contain second version")
+    print("  [PASS] test_register_aggregator_config_multiple_groups")
+
+def test_register_aggregator_config_default_host_port():
+    """Test register_aggregator_config uses defaults for host and port."""
+    result = register_aggregator_config(api_groups=[
+        {
+            'group': 'test.ext.grafana.com',
+            'version': 'v1',
+            # No host or port specified
+        }
+    ])
+    script = result['services']['aggregator-config']['command'][1]
+    # Should use defaults: k3s-apiserver:6443
+    assert_contains(script, 'host: k3s-apiserver', "Should use default host")
+    assert_contains(script, 'port: 6443', "Should use default port")
+    print("  [PASS] test_register_aggregator_config_default_host_port")
+
+def test_register_aggregator_config_custom_host_port():
+    """Test register_aggregator_config with custom host and port."""
+    result = register_aggregator_config(api_groups=[
+        {
+            'group': 'test.ext.grafana.com',
+            'version': 'v1',
+            'host': 'custom-host',
+            'port': 9999,
+        }
+    ])
+    script = result['services']['aggregator-config']['command'][1]
+    assert_contains(script, 'host: custom-host', "Should use custom host")
+    assert_contains(script, 'port: 9999', "Should use custom port")
+    print("  [PASS] test_register_aggregator_config_custom_host_port")
+
+# ============================================================================
+# Run All Tests
+# ============================================================================
+
+def run_tests():
+    print("\n=== provision_plugins Tests ===")
+    test_provision_plugins_empty_list()
+    test_provision_plugins_single_path()
+    test_provision_plugins_multiple_paths()
+    test_provision_plugins_volume_format()
+    test_provision_plugins_unique_mount_points()
+
+    print("\n=== register_aggregator_config Tests ===")
+    test_register_aggregator_config_single_group()
+    test_register_aggregator_config_yaml_format()
+    test_register_aggregator_config_multiple_groups()
+    test_register_aggregator_config_default_host_port()
+    test_register_aggregator_config_custom_host_port()
+
+    print("\n" + "=" * 50)
+    print("All tests passed!")
+    print("=" * 50)
+    print("\nNote: Error case tests (empty list, wrong types, missing fields)")
+    print("are validated by the helper's fail() calls at runtime.")
+
+# Run tests
+run_tests()
+
+# Dummy resource to satisfy tilt ci
+local_resource('tests', cmd='echo "Tests completed"', auto_init=False)

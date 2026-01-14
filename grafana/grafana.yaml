@@ -33,5 +33,24 @@ services:
       - grafana-data:/var/lib/grafana
     restart: unless-stopped
 
+  aggregator-config:
+    image: alpine:latest
+    volumes:
+      - k3s-certs:/certs
+    depends_on:
+      - k3s-apiserver  # Will be ignored if k3s not present
+    entrypoint: ["/bin/sh"]
+    command:
+      - "-c"
+      - |
+        echo 'Creating default aggregator config...'
+        cat << EOF > /certs/aggregator-config.yaml
+        # Default empty config - use register_aggregator_config() to customize
+        []
+        EOF
+        echo 'Aggregator config created successfully'
+        cat /certs/aggregator-config.yaml
+    restart: "no"
+
 volumes:
   grafana-data:

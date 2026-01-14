@@ -1,4 +1,10 @@
+# Minimal docker-compose for grafana integration tests
+# This file is intentionally minimal - dependencies provide the real services
+
 services:
-  noop:
+  # Dummy service to satisfy compose_composer
+  # Real services come from grafana, k3s-apiserver, and mysql composables
+  test-complete:
     image: alpine:latest
-    command: /bin/sleep infinity
+    command: echo "Grafana integration tests - check .compose-stage/ for results"
+    restart: "no"
