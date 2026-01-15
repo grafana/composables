@@ -54,9 +54,11 @@ def register_crds(crd_paths):
     """
     volumes = []
     for path in crd_paths:
-        # Use basename for the mount point under /crds
-        mount_name = os.path.basename(path)
-        volume_mount = path + ':/crds/' + mount_name + ':ro'
+        # Use hash of full path to ensure unique mount points
+        # Multiple plugins may have directories with the same basename (e.g., 'definitions')
+        # The crd-loader does a recursive find, so the actual mount point name doesn't matter
+        path_hash = str(abs(hash(path)))
+        volume_mount = path + ':/crds/' + path_hash + ':ro'
         volumes.append(volume_mount)
     if not volumes:
         return {}
