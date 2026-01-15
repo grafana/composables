@@ -22,9 +22,11 @@ def register_crds(crd_paths):
     volumes = []
 
     for path in crd_paths:
-        # Use basename for the mount point under /crds
-        mount_name = os.path.basename(path)
-        volume_mount = path + ':/crds/' + mount_name + ':ro'
+        # Use hash of full path to ensure unique mount points
+        # Multiple plugins may have directories with the same basename (e.g., 'definitions')
+        # The crd-loader does a recursive find, so the actual mount point name doesn't matter
+        path_hash = str(abs(hash(path)))
+        volume_mount = path + ':/crds/' + path_hash + ':ro'
         volumes.append(volume_mount)
 
     if not volumes:
@@ -135,10 +137,63 @@ def test_register_crds_volume_format():
     """Test register_crds generates correct volume format."""
     result = register_crds(crd_paths=['/abs/path/to/definitions'])
     volumes = result['services']['crd-loader']['volumes']
-    # Should be: /abs/path/to/definitions:/crds/definitions:ro
+    # Should be: /abs/path/to/definitions:/crds/<hash>:ro
     assert_true(volumes[0].startswith('/abs/path/to/definitions:'), "Should start with source path")
     assert_true(':ro' in volumes[0], "Should be read-only mount")
+    assert_true(':/crds/' in volumes[0], "Should mount under /crds/")
     print("  [PASS] test_register_crds_volume_format")
+
+def test_register_crds_unique_mount_points():
+    """Test register_crds generates unique mount points for different paths."""
+    result = register_crds(crd_paths=['/plugin1/definitions', '/plugin2/definitions'])
+    volumes = result['services']['crd-loader']['volumes']
+    assert_equals(len(volumes), 2, "Should have 2 volume mounts")
+
+    # Extract mount points (the part between first and second colon)
+    mount_point_1 = volumes[0].split(':')[1]
+    mount_point_2 = volumes[1].split(':')[1]
+
+    # Mount points should be different even though basenames are the same
+    assert_true(mount_point_1 != mount_point_2, "Mount points should be unique")
+    assert_true(mount_point_1.startswith('/crds/'), "First mount should be under /crds/")
+    assert_true(mount_point_2.startswith('/crds/'), "Second mount should be under /crds/")
+    print("  [PASS] test_register_crds_unique_mount_points")
+
+def test_register_crds_hash_deterministic():
+    """Test register_crds generates deterministic hashes for same path."""
+    result1 = register_crds(crd_paths=['/plugin1/definitions'])
+    result2 = register_crds(crd_paths=['/plugin1/definitions'])
+
+    volume1 = result1['services']['crd-loader']['volumes'][0]
+    volume2 = result2['services']['crd-loader']['volumes'][0]
+
+    assert_equals(volume1, volume2, "Same path should generate same mount point")
+    print("  [PASS] test_register_crds_hash_deterministic")
+
+def test_register_crds_collision_scenario():
+    """Test register_crds handles the real-world collision scenario."""
+    # Simulate service-model and gops-labels both having 'definitions' directories
+    result = register_crds(crd_paths=[
+        '/home/user/service-model/definitions',
+        '/home/user/gops-labels/definitions'
+    ])
+
+    volumes = result['services']['crd-loader']['volumes']
+    assert_equals(len(volumes), 2, "Should mount both directories")
+
+    # Verify both source paths are present
+    assert_true('/home/user/service-model/definitions:' in volumes[0],
+                "First volume should have service-model path")
+    assert_true('/home/user/gops-labels/definitions:' in volumes[1],
+                "Second volume should have gops-labels path")
+
+    # Extract and verify mount points are different
+    mount_point_1 = volumes[0].split(':')[1]
+    mount_point_2 = volumes[1].split(':')[1]
+    assert_true(mount_point_1 != mount_point_2,
+                "Directories with same basename should get unique mount points")
+
+    print("  [PASS] test_register_crds_collision_scenario")
 
 # ============================================================================
 # register_webhook Tests
@@ -210,6 +265,9 @@ def run_tests():
     test_register_crds_multiple_paths()
     test_register_crds_empty_list()
     test_register_crds_volume_format()
+    test_register_crds_unique_mount_points()
+    test_register_crds_hash_deterministic()
+    test_register_crds_collision_scenario()
 
     print("\n=== register_webhook Tests ===")
     test_register_webhook_basic()
