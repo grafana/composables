@@ -163,6 +163,8 @@ def get_wire_when():
     return {
         # When mysql is loaded, wire grafana to use it as database
         'mysql': {
+            # Declare database requirement - picked up by mysql's process_accumulated_modifications()
+            '_database_requirement': 'grafana',
             'services': {
                 'grafana': {
                     # Add service dependency

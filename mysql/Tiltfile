@@ -2,8 +2,10 @@
 # Provides MySQL database for development.
 #
 # Exports:
-#   cc_get_plugin()      - Returns plugin struct for compose_composer
-#   create_databases()   - Helper to create multiple databases
+#   cc_get_plugin()                         - Returns plugin struct for compose_composer
+#   create_databases()                      - Helper to create multiple databases (legacy, still supported)
+#   require_database()                      - Declare database requirement (recommended for new code)
+#   process_accumulated_modifications()     - Callback invoked by compose_composer
 
 load('ext://compose_composer', 'cc_local_composable', 'cc_generate_master_compose', 'cc_docker_compose', 'cc_parse_cli_plugins')
 
@@ -55,6 +57,80 @@ def create_databases(database_names=[], orchestrator_dir=None):
             },
         },
     }
+
+def require_database(database_name):
+    """
+    Declare that this composable requires a database to be created.
+
+    This is a declarative marker - it doesn't create the database directly.
+    Instead, compose_composer accumulates all requirements and calls
+    create_databases() once with the full list.
+
+    Args:
+        database_name: Name of database to create (e.g., 'oncall_local_dev')
+
+    Returns:
+        Dict with _database_requirement marker for compose_composer to process
+
+    Example:
+        # In your composable's cc_get_plugin():
+        return cc_local_composable(
+            'oncall-backend',
+            ...,
+            mysql,
+            modifications=[
+                mysql.require_database('oncall_local_dev'),
+            ],
+        )
+    """
+    return {
+        '_database_requirement': database_name,
+        '_target': 'mysql',  # Marker that this modifies mysql dependency
+    }
+
+def process_accumulated_modifications(all_modifications, orchestrator_dir):
+    """
+    Extract database requirements from all modifications and generate create_databases.
+
+    This helper is called by compose_composer AFTER collecting all modifications
+    from root + CLI plugins. MySQL handles its own requirement processing.
+
+    Args:
+        all_modifications: List of all modification dicts from all plugins
+        orchestrator_dir: Directory for generating .mysql-init script
+
+    Returns:
+        Dict with compose_overrides to create all required databases,
+        or {} if no requirements found
+
+    Example:
+        # This callback is automatically invoked by compose_composer.
+        # Composables export this via _symbols and compose_composer calls it.
+    """
+    # Extract database requirements from modifications
+    database_requirements = []
+
+    for mod in all_modifications:
+        if type(mod) == 'dict' and '_database_requirement' in mod:
+            db_name = mod['_database_requirement']
+            if db_name:  # Skip empty names
+                database_requirements.append(db_name)
+
+    # Deduplicate and sort
+    unique_databases = sorted(list(set(database_requirements)))
+
+    if not unique_databases:
+        return {}  # No requirements found
+
+    print("[mysql] Auto-provisioning databases: {}".format(', '.join(unique_databases)))
+
+    # Delegate to create_databases for SQL generation and volume mounting
+    mod = create_databases(unique_databases, orchestrator_dir)
+
+    # Add _target so compose_composer knows this modifies the mysql dependency
+    mod['_target'] = 'mysql'
+
+    return mod
 
 def cc_get_plugin():
     """Returns the plugin struct for compose_composer."""
