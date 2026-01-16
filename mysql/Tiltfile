@@ -39,12 +39,12 @@ def create_databases(database_names=[], orchestrator_dir=None):
     sql_commands.append("FLUSH PRIVILEGES;")
     sql_script = '\n'.join(sql_commands)
 
-    # Create .mysql-init directory for generated scripts
-    init_dir = orchestrator_dir + '/.mysql-init'
+    # Create .cc directory for generated scripts
+    init_dir = orchestrator_dir + '/.cc'
     local('mkdir -p ' + init_dir)
 
     # Write the init script
-    init_script_path = init_dir + '/01-create-databases.sql'
+    init_script_path = init_dir + '/mysql-init.sql'
     local('cat > ' + init_script_path + ' <<\'EOF\'\n' + sql_script + '\nEOF\n')
 
     # Return compose overrides to mount the init script
@@ -52,7 +52,7 @@ def create_databases(database_names=[], orchestrator_dir=None):
         'services': {
             'db': {
                 'volumes': [
-                    init_dir + ':/docker-entrypoint-initdb.d:ro',
+                    init_script_path + ':/docker-entrypoint-initdb.d/01-create-databases.sql:ro',
                 ],
             },
         },
@@ -97,7 +97,7 @@ def process_accumulated_modifications(all_modifications, orchestrator_dir):
 
     Args:
         all_modifications: List of all modification dicts from all plugins
-        orchestrator_dir: Directory for generating .mysql-init script
+        orchestrator_dir: Directory for generating mysql-init.sql script
 
     Returns:
         Dict with compose_overrides to create all required databases,

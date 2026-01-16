@@ -6,5 +6,5 @@ services:
   # Real services come from grafana, k3s-apiserver, and mysql composables
   test-complete:
     image: alpine:latest
-    command: echo "Grafana integration tests - check .compose-stage/ for results"
+    command: echo "Grafana integration tests - check .cc/ for results"
     restart: "no"

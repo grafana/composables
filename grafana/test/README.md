@@ -122,7 +122,7 @@ The integration test (`Tiltfile.integration`) automatically verifies:
 - ✓ API host k3s-apiserver configured
 - ✓ API port 6443 configured
 
-The test reads the staged `.compose-stage/grafana.yaml` file and fails if any expected value is missing. This ensures wire-when rules and helper modifications work correctly.
+The test reads the staged `.cc/grafana.yaml` file and fails if any expected value is missing. This ensures wire-when rules and helper modifications work correctly.
 
 ### Runtime Verification
 

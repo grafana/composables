@@ -71,7 +71,7 @@ if __file__ == config.main_path:
     master = cc_generate_master_compose(
         cc_get_plugin(),
         cc_parse_cli_plugins(os.path.dirname(__file__)),
-        staging_dir=os.path.dirname(__file__) + '/.compose-stage',
+        staging_dir=os.path.dirname(__file__) + '/.cc',
     )
 
     print("\n" + "=" * 70)
@@ -79,7 +79,7 @@ if __file__ == config.main_path:
     print("=" * 70 + "\n")
 
     # Read the staged grafana.yaml file
-    staged_file = os.path.dirname(__file__) + '/.compose-stage/grafana.yaml'
+    staged_file = os.path.dirname(__file__) + '/.cc/grafana.yaml'
     staged_content = str(read_file(staged_file))
 
     # Test helper functions

@@ -17,4 +17,4 @@ test-all: test test-integration
 clean:
 	@echo "Cleaning up test resources..."
 	tilt down || true
-	rm -rf .compose-stage || true
+	rm -rf .cc || true
