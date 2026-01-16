@@ -6,6 +6,7 @@
 #   get_wire_when()                - Conditional wiring rules
 #   provision_plugins()            - Helper to mount plugin provisioning directories
 #   register_aggregator_config()   - Configure API server aggregation for AppPlatform
+#   register_plugin()              - Helper to register Grafana plugins
 
 load('ext://compose_composer', 'cc_import', 'cc_create', 'cc_generate_master_compose', 'cc_docker_compose', 'cc_parse_cli_plugins')
 
@@ -47,6 +48,158 @@ def provision_plugins(plugin_paths=[]):
             },
         },
     }
+
+def register_plugin(plugin_specs):
+    """
+    Helper function to register Grafana plugins.
+
+    This mounts plugin dist directories, provisioning files, and configures
+    Grafana to load unsigned plugins.
+
+    Args:
+        plugin_specs: List of plugin specification dicts, each with:
+            - name: str (required)
+                Plugin ID (e.g., 'grafana-labels-app')
+
+            - dist: str or dict (required)
+                Either:
+                  - String: Direct mount spec (e.g., 'plugin-dist:/var/lib/grafana/plugins/name')
+                  - String: Absolute path to dist dir (e.g., '/path/to/dist')
+                  - Dict: {'source': '...', 'target': '...', 'read_only': bool}
+
+            - provisioning_file: str (optional)
+                Absolute path to provisioning YAML file
+                Mounted to: /etc/grafana/provisioning/plugins/{name}.yaml
+
+            - depends_on: list[str] (optional)
+                Service names to add to grafana's depends_on
+                Example: ['plugin-frontend-build', 'plugin-backend-build']
+
+            - feature_toggles: str (optional)
+                Comma-separated feature toggles to enable
+                Example: 'labelsV2Enabled,grafanaAPIServerWithExperimentalAPIs'
+
+    Returns:
+        Dict with compose_overrides structure targeting grafana service
+
+    Example - Docker Volume Mount (gops-labels pattern):
+        grafana.register_plugin([{
+            'name': 'grafana-labels-app',
+            'dist': 'plugin-dist:/var/lib/grafana/plugins/grafana-labels-app',
+            'provisioning_file': os.path.dirname(__file__) + '/local/provisioning.yaml',
+            'depends_on': ['plugin-frontend-build', 'plugin-backend-build'],
+            'feature_toggles': 'labelsV2Enabled,grafanaAPIServerEnsureKubectlAccess',
+        }])
+
+    Example - Host Path Mount (irm pattern):
+        grafana.register_plugin([{
+            'name': 'grafana-irm-app',
+            'dist': os.path.dirname(__file__) + '/packages/@plugins/grafana-irm-app/dist',
+        }])
+
+    Example - Multiple Plugins:
+        grafana.register_plugin([
+            {'name': 'grafana-irm-app', 'dist': '/path/to/irm/dist'},
+            {'name': 'grafana-oncall-app', 'dist': '/path/to/oncall/dist'},
+        ])
+    """
+    if not plugin_specs:
+        return {}
+
+    if type(plugin_specs) != 'list':
+        fail("plugin_specs must be a list of dicts, got: " + str(type(plugin_specs)))
+
+    # Accumulate modifications
+    volumes = []
+    depends_on = []
+    unsigned_plugins = []
+    feature_toggles = []
+
+    for spec in plugin_specs:
+        if type(spec) != 'dict':
+            fail("Each plugin spec must be a dict, got: " + str(type(spec)))
+
+        # Validate required fields
+        if 'name' not in spec:
+            fail("Plugin spec missing required 'name' field: " + str(spec))
+        if 'dist' not in spec:
+            fail("Plugin spec missing required 'dist' field for plugin: " + spec['name'])
+
+        name = spec['name']
+        dist = spec['dist']
+
+        # Handle dist mounting
+        if type(dist) == 'string' or type(dist) == 'str':
+            # Check if it's already a complete mount spec (contains ':')
+            if ':' in dist:
+                # Direct mount spec like 'plugin-dist:/var/lib/grafana/plugins/name'
+                volume_mount = dist
+                if not volume_mount.endswith(':ro'):
+                    volume_mount = volume_mount + ':ro'
+            else:
+                # Absolute path - construct mount
+                volume_mount = dist + ':/var/lib/grafana/plugins/' + name + ':ro'
+        elif type(dist) == 'dict':
+            # Dict format: {'source': '...', 'target': '...', 'read_only': True}
+            source = dist.get('source', '')
+            target = dist.get('target', '/var/lib/grafana/plugins/' + name)
+            read_only = dist.get('read_only', True)
+            volume_mount = source + ':' + target
+            if read_only:
+                volume_mount = volume_mount + ':ro'
+        else:
+            fail("dist must be string or dict, got: " + str(type(dist)) + " for plugin: " + name)
+
+        volumes.append(volume_mount)
+
+        # Handle provisioning file (optional)
+        if 'provisioning_file' in spec:
+            prov_file = spec['provisioning_file']
+            prov_mount = prov_file + ':/etc/grafana/provisioning/plugins/' + name + '.yaml:ro'
+            volumes.append(prov_mount)
+
+        # Collect depends_on (optional)
+        if 'depends_on' in spec:
+            spec_depends = spec['depends_on']
+            if type(spec_depends) == 'list':
+                for dep in spec_depends:
+                    if dep not in depends_on:
+                        depends_on.append(dep)
+            else:
+                fail("depends_on must be a list, got: " + str(type(spec_depends)) + " for plugin: " + name)
+
+        # Collect unsigned plugin name
+        unsigned_plugins.append(name)
+
+        # Collect feature toggles (optional)
+        if 'feature_toggles' in spec:
+            toggles = spec['feature_toggles']
+            if toggles:
+                feature_toggles.append(toggles)
+
+    # Build compose_overrides structure
+    result = {
+        'services': {
+            'grafana': {
+                'volumes': volumes,
+                'environment': {
+                    # Will be concatenated with existing via deep merge
+                    'GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS': ','.join(unsigned_plugins),
+                },
+            },
+        },
+    }
+
+    # Add depends_on if specified
+    if depends_on:
+        result['services']['grafana']['depends_on'] = depends_on
+
+    # Add feature toggles if specified
+    if feature_toggles:
+        # Concatenate all feature toggles with commas
+        result['services']['grafana']['environment']['GF_FEATURE_TOGGLES_ENABLE'] = ','.join(feature_toggles)
+
+    return result
 
 def register_aggregator_config(api_groups):
     """
