@@ -3,8 +3,25 @@
 # Used by various development environments
 
 services:
+  # Certificate cleanup - ensures fresh webhook certs on every startup
+  cert-cleanup:
+    image: alpine:latest
+    volumes:
+      - k3s-certs:/certs
+    command:
+      - sh
+      - -c
+      - |
+        echo "Cleaning webhook TLS certificates to ensure config changes are reflected..."
+        rm -rf /certs/tls/
+        echo "Webhook certificate cleanup complete"
+    restart: "no"
+
   cert-provider:
     image: alpine:latest
+    depends_on:
+      cert-cleanup:
+        condition: service_completed_successfully
     volumes:
       - k3s-certs:/certs
     environment:
@@ -50,58 +67,57 @@ services:
         fi
         
         # Generate TLS certificates for webhook operators
-        if [ ! -f /certs/tls/tls.crt ]; then
-          echo "Generating TLS certificates for webhook operators..."
-          apk add --no-cache openssl
-          
-          # Parse webhook operators and build Subject Alternative Names
-          WEBHOOK_OPERATORS=$${WEBHOOK_OPERATORS:-grafana-servicemodel-operator:default}
-          echo "Webhook operators: $$WEBHOOK_OPERATORS"
-          
-          # Start building SAN list
-          SAN_LIST=""
-          
-          # Process each operator
-          OPERATORS=$$(echo "$$WEBHOOK_OPERATORS" | tr ',' ' ')
-          for operator in $$OPERATORS; do
-            # Split operator:namespace (default to 'default' namespace)
-            if [[ "$$operator" == *:* ]]; then
-              OP_NAME="$${operator%:*}"
-              OP_NAMESPACE="$${operator#*:}"
-            else
-              OP_NAME="$$operator"
-              OP_NAMESPACE="default"
-            fi
-            
-            echo "Processing operator: $$OP_NAME in namespace: $$OP_NAMESPACE"
-            
-            # Add DNS names for this operator
-            if [ -n "$$SAN_LIST" ]; then
-              SAN_LIST="$$SAN_LIST,"
-            fi
-            SAN_LIST="$${SAN_LIST}DNS:$$OP_NAME"
-            SAN_LIST="$$SAN_LIST,DNS:$$OP_NAME.$$OP_NAMESPACE"
-            SAN_LIST="$$SAN_LIST,DNS:$$OP_NAME.$$OP_NAMESPACE.svc"
-            SAN_LIST="$$SAN_LIST,DNS:$$OP_NAME.$$OP_NAMESPACE.svc.cluster.local"
-          done
-          
-          # Add common SAN entries
-          SAN_LIST="$$SAN_LIST,DNS:localhost,IP:127.0.0.1"
-          
-          echo "Generated SAN list: $$SAN_LIST"
-          
-          # Use first operator as the primary CN
-          FIRST_OPERATOR=$$(echo "$$OPERATORS" | cut -d' ' -f1)
-          if [[ "$$FIRST_OPERATOR" == *:* ]]; then
-            PRIMARY_CN="$${FIRST_OPERATOR%:*}"
+        # Always regenerate to reflect current operator configuration
+        echo "Generating TLS certificates for webhook operators..."
+        apk add --no-cache openssl
+
+        # Parse webhook operators and build Subject Alternative Names
+        WEBHOOK_OPERATORS=$${WEBHOOK_OPERATORS:-grafana-servicemodel-operator:default}
+        echo "Webhook operators: $$WEBHOOK_OPERATORS"
+
+        # Start building SAN list
+        SAN_LIST=""
+
+        # Process each operator
+        OPERATORS=$$(echo "$$WEBHOOK_OPERATORS" | tr ',' ' ')
+        for operator in $$OPERATORS; do
+          # Split operator:namespace (default to 'default' namespace)
+          if [[ "$$operator" == *:* ]]; then
+            OP_NAME="$${operator%:*}"
+            OP_NAMESPACE="$${operator#*:}"
           else
-            PRIMARY_CN="$$FIRST_OPERATOR"
+            OP_NAME="$$operator"
+            OP_NAMESPACE="default"
           fi
-          
-          openssl req -x509 -newkey rsa:4096 -keyout /certs/tls/tls.key -out /certs/tls/tls.crt \
-            -days 365 -nodes -subj "/CN=$$PRIMARY_CN" \
-            -addext "subjectAltName=$$SAN_LIST"
+
+          echo "Processing operator: $$OP_NAME in namespace: $$OP_NAMESPACE"
+
+          # Add DNS names for this operator
+          if [ -n "$$SAN_LIST" ]; then
+            SAN_LIST="$$SAN_LIST,"
+          fi
+          SAN_LIST="$${SAN_LIST}DNS:$$OP_NAME"
+          SAN_LIST="$$SAN_LIST,DNS:$$OP_NAME.$$OP_NAMESPACE"
+          SAN_LIST="$$SAN_LIST,DNS:$$OP_NAME.$$OP_NAMESPACE.svc"
+          SAN_LIST="$$SAN_LIST,DNS:$$OP_NAME.$$OP_NAMESPACE.svc.cluster.local"
+        done
+
+        # Add common SAN entries
+        SAN_LIST="$$SAN_LIST,DNS:localhost,IP:127.0.0.1"
+
+        echo "Generated SAN list: $$SAN_LIST"
+
+        # Use first operator as the primary CN
+        FIRST_OPERATOR=$$(echo "$$OPERATORS" | cut -d' ' -f1)
+        if [[ "$$FIRST_OPERATOR" == *:* ]]; then
+          PRIMARY_CN="$${FIRST_OPERATOR%:*}"
+        else
+          PRIMARY_CN="$$FIRST_OPERATOR"
         fi
+
+        openssl req -x509 -newkey rsa:4096 -keyout /certs/tls/tls.key -out /certs/tls/tls.crt \
+          -days 365 -nodes -subj "/CN=$$PRIMARY_CN" \
+          -addext "subjectAltName=$$SAN_LIST"
         
         echo "Certificate setup complete. Listing contents of /certs/api-server-aggregation/ and /certs/tls/"
         ls -la /certs/api-server-aggregation/
@@ -127,6 +143,18 @@ services:
     command:
       - "-c"
       - |
+        # Wait for TLS certificates to be ready (prevent race condition with cert-provider)
+        echo "Waiting for TLS certificates to be available and valid..."
+        while [ ! -f /etc/traefik/certs/tls/tls.crt ] || [ ! -s /etc/traefik/certs/tls/tls.crt ]; do
+          echo "Waiting for tls.crt to be created and non-empty..."
+          sleep 1
+        done
+        while [ ! -f /etc/traefik/certs/tls/tls.key ] || [ ! -s /etc/traefik/certs/tls/tls.key ]; do
+          echo "Waiting for tls.key to be created and non-empty..."
+          sleep 1
+        done
+        echo "TLS certificates are ready"
+
         # Create dynamic TLS configuration using the existing webhook certificates
         mkdir -p /etc/traefik/dynamic
         cat > /etc/traefik/dynamic/tls.yml << 'EOF'
