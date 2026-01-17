@@ -1,0 +1,52 @@
+services:
+  aggregator-config:
+    command:
+    - -c
+    - "\necho 'Creating aggregator config...'\ncat << 'EOF' > /certs/aggregator-config.yaml\n-
+      group: test.ext.grafana.com\n  version: v1\n  host: k3s-apiserver\n  port: 6443\nEOF\necho
+      'Aggregator config created successfully'\ncat /certs/aggregator-config.yaml\n
+      \                   "
+    depends_on:
+    - k3s-apiserver
+    entrypoint:
+    - /bin/sh
+    image: alpine:latest
+    restart: "no"
+    volumes:
+    - k3s-certs:/certs
+  grafana:
+    container_name: grafana
+    depends_on:
+    - db
+    - k3s-apiserver
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_MANAGED_SERVICE_ACCOUNTS_ENABLED: true
+      GF_DATABASE_HOST: db:3306
+      GF_DATABASE_NAME: grafana
+      GF_DATABASE_PASSWORD: pass
+      GF_DATABASE_TYPE: mysql
+      GF_DATABASE_USER: user
+      GF_DEFAULT_APP_MODE: development
+      GF_FEATURE_TOGGLES_ENABLE: kubernetesDashboards,kubernetesDashboardsAPI,grafanaAPIServerEnsureKubectlAccess,kubernetesAggregator
+      GF_GRAFANA_APISERVER_PROXY_CLIENT_CERT_FILE: /etc/kubernetes/pki/api-server-aggregation/apiserver-client.pem
+      GF_GRAFANA_APISERVER_PROXY_CLIENT_KEY_FILE: /etc/kubernetes/pki/api-server-aggregation/apiserver-client-key.pem
+      GF_GRAFANA_APISERVER_REMOTE_SERVICES_FILE: /etc/kubernetes/pki/aggregator-config.yaml
+      GF_LOG_FILTERS: grafana-apiserver:info,dashboards-k8s-client:warn
+      GF_LOG_LEVEL: info
+      GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS: grafana-servicemodel-plugin
+      GF_SERVER_ROOT_URL: http://localhost:${GRAFANA_PORT:-3000}
+      GF_SESSION_PROVIDER: mysql
+      GF_SESSION_PROVIDER_CONFIG: user:pass@tcp(db:3306)/grafana
+      KUBECONFIG: /etc/grafana/kubeconfig.yaml
+    image: grafana/grafana-enterprise:latest
+    ports:
+    - ${GRAFANA_PORT:-3000}:3000
+    restart: unless-stopped
+    user: root
+    volumes:
+    - grafana-data:/var/lib/grafana
+    - k3s-certs:/etc/kubernetes/pki:ro
+volumes:
+  grafana-data: null
+  k3s-certs: null

@@ -2,12 +2,12 @@
 # Provides MySQL database for development.
 #
 # Exports:
-#   cc_get_plugin()                         - Returns plugin struct for compose_composer
+#   cc_export()                         - Returns plugin struct for compose_composer
 #   create_databases()                      - Helper to create multiple databases (legacy, still supported)
 #   require_database()                      - Declare database requirement (recommended for new code)
 #   process_accumulated_modifications()     - Callback invoked by compose_composer
 
-load('ext://compose_composer', 'cc_local_composable', 'cc_generate_master_compose', 'cc_docker_compose', 'cc_parse_cli_plugins')
+load('ext://compose_composer', 'cc_create', 'cc_generate_master_compose', 'cc_docker_compose', 'cc_parse_cli_plugins')
 
 def create_databases(database_names=[], orchestrator_dir=None):
     """
@@ -73,8 +73,8 @@ def require_database(database_name):
         Dict with _database_requirement marker for compose_composer to process
 
     Example:
-        # In your composable's cc_get_plugin():
-        return cc_local_composable(
+        # In your composable's cc_export():
+        return cc_create(
             'oncall-backend',
             ...,
             mysql,
@@ -132,9 +132,9 @@ def process_accumulated_modifications(all_modifications, orchestrator_dir):
 
     return mod
 
-def cc_get_plugin():
+def cc_export():
     """Returns the plugin struct for compose_composer."""
-    return cc_local_composable(
+    return cc_create(
         'mysql',
         os.path.dirname(__file__) + '/mysql.yaml',
         labels=['infra'],

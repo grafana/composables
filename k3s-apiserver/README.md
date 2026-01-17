@@ -43,8 +43,8 @@ k3s = cc_composable(
     imports=['register_crds'],
 )
 
-def cc_get_plugin():
-    return cc_local_composable(
+def cc_export():
+    return cc_create(
         'my-operator',
         os.path.dirname(__file__) + '/docker-compose.yaml',
         k3s,
@@ -69,8 +69,8 @@ k3s = cc_composable(
     imports=['register_webhook'],
 )
 
-def cc_get_plugin():
-    return cc_local_composable(
+def cc_export():
+    return cc_create(
         'my-operator',
         os.path.dirname(__file__) + '/docker-compose.yaml',
         k3s,
@@ -116,7 +116,7 @@ k3s = cc_composable(
 )
 
 if __file__ == config.main_path:
-    master = cc_generate_master_compose(cc_get_plugin(), cli_plugins)
+    master = cc_generate_master_compose(cc_export(), cli_plugins)
     cc_docker_compose(master)
 
     # Copy kubeconfig for local kubectl usage
@@ -143,15 +143,15 @@ This composable does not export wire-when rules. Instead, other composables (lik
 # Load the k3s-apiserver composable
 k3s = cc_composable(name='k3s-apiserver', url='https://github.com/grafana/composables')
 
-def cc_get_plugin():
-    return cc_local_composable(
+def cc_export():
+    return cc_create(
         'my-app',
         os.path.dirname(__file__) + '/docker-compose.yaml',
         k3s,  # k3s as a dependency
     )
 
 if __file__ == config.main_path:
-    master = cc_generate_master_compose(cc_get_plugin(), [])
+    master = cc_generate_master_compose(cc_export(), [])
     cc_docker_compose(master)
 ```
 
@@ -164,8 +164,8 @@ k3s = cc_composable(
     imports=['register_crds'],
 )
 
-def cc_get_plugin():
-    return cc_local_composable(
+def cc_export():
+    return cc_create(
         'my-operator',
         os.path.dirname(__file__) + '/docker-compose.yaml',
         k3s,
@@ -186,8 +186,8 @@ k3s = cc_composable(
     imports=['register_webhook'],
 )
 
-def cc_get_plugin():
-    return cc_local_composable(
+def cc_export():
+    return cc_create(
         'my-operator',
         os.path.dirname(__file__) + '/docker-compose.yaml',
         k3s,
@@ -210,8 +210,8 @@ k3s = cc_composable(
     labels=['k8s'],
 )
 
-def cc_get_plugin():
-    return cc_local_composable(
+def cc_export():
+    return cc_create(
         'my-operator',
         os.path.dirname(__file__) + '/docker-compose.yaml',
         k3s,
@@ -230,7 +230,7 @@ def cc_get_plugin():
     )
 
 if __file__ == config.main_path:
-    master = cc_generate_master_compose(cc_get_plugin(), [])
+    master = cc_generate_master_compose(cc_export(), [])
     cc_docker_compose(master)
 
     # Copy kubeconfig for local kubectl access

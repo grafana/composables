@@ -2,7 +2,7 @@
 # Provides a standalone k3s API server for development.
 #
 # Exports:
-#   cc_get_plugin()              - Returns plugin struct for compose_composer
+#   cc_export()              - Returns plugin struct for compose_composer
 #   get_kubeconfig_path()        - Returns path to the kubeconfig output
 #   register_crds()              - Generate compose_overrides to mount CRDs into crd-loader
 #   register_webhook()           - Generate compose_overrides to configure webhook operators
@@ -10,15 +10,15 @@
 #   register_roles()             - Generate compose_overrides to apply RBAC roles and bindings
 #   copy_kubeconfig_local()      - Create local_resource to copy kubeconfig to local path
 
-load('ext://compose_composer', 'cc_local_composable', 'cc_generate_master_compose', 'cc_docker_compose', 'cc_parse_cli_plugins')
+load('ext://compose_composer', 'cc_create', 'cc_generate_master_compose', 'cc_docker_compose', 'cc_parse_cli_plugins')
 
-def cc_get_plugin():
+def cc_export():
     """Returns the plugin struct for compose_composer.
 
-    This function is only called when loaded as an extension via cc_composable().
-    cc_local_composable is injected by compose_composer's load_dynamic before this is called.
+    This function is only called when loaded as an extension via cc_import().
+    cc_create is injected by compose_composer's load_dynamic before this is called.
     """
-    return cc_local_composable(
+    return cc_create(
         'k3s-apiserver',
         os.path.dirname(__file__) + '/k3s-apiserver-generic.yaml',
         labels=['k8s'],
@@ -84,13 +84,13 @@ def register_webhook(operator_specs):
         Dict with compose_overrides structure. The _target field is added
         automatically by the wrapper when this function is imported.
     Example:
-        k3s = cc_composable(
+        k3s = cc_import(
             name='k3s-apiserver',
             url='...',
             imports=['register_crds', 'register_webhook'],
         )
-        def cc_get_plugin():
-            return cc_local_composable(
+        def cc_export():
+            return cc_create(
                 'my-operator',
                 os.path.dirname(__file__) + '/docker-compose.yaml',
                 k3s,
@@ -186,14 +186,14 @@ def register_admission_config(admission_yaml_path, resource_name_suffix=''):
         Dict with compose_overrides to create admission-setup service with mounted config
 
     Example:
-        k3s = cc_composable(
+        k3s = cc_import(
             name='k3s-apiserver',
             url='...',
             imports=['register_admission_config'],
         )
 
-        def cc_get_plugin():
-            return cc_local_composable(
+        def cc_export():
+            return cc_create(
                 'my-app',
                 os.path.dirname(__file__) + '/docker-compose.yaml',
                 k3s,
@@ -301,14 +301,14 @@ def register_roles(roles_yaml_path, resource_name_suffix='roles'):
         Dict with compose_overrides structure for the roles-setup service
 
     Example:
-        k3s = cc_composable(
+        k3s = cc_import(
             name='k3s-apiserver',
             url='...',
             imports=['register_roles'],
         )
 
-        def cc_get_plugin():
-            return cc_local_composable(
+        def cc_export():
+            return cc_create(
                 'my-app',
                 os.path.dirname(__file__) + '/docker-compose.yaml',
                 k3s,
@@ -385,14 +385,14 @@ def copy_kubeconfig_local(dest_path, resource_name='kubeconfig-copy'):
         None - Creates the local_resource directly
 
     Example:
-        k3s = cc_composable(
+        k3s = cc_import(
             name='k3s-apiserver',
             url='...',
             imports=['copy_kubeconfig_local'],
         )
 
         if __file__ == config.main_path:
-            master = cc_generate_master_compose(cc_get_plugin(), cli_plugins)
+            master = cc_generate_master_compose(cc_export(), cli_plugins)
             cc_docker_compose(master)
 
             # Copy kubeconfig for local kubectl usage

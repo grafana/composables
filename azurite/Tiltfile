@@ -2,13 +2,13 @@
 # Provides Azure Storage emulator for development (optional).
 #
 # Exports:
-#   cc_get_plugin()    - Returns plugin struct for compose_composer
+#   cc_export()    - Returns plugin struct for compose_composer
 
-load('ext://compose_composer', 'cc_local_composable', 'cc_generate_master_compose', 'cc_docker_compose', 'cc_parse_cli_plugins')
+load('ext://compose_composer', 'cc_create', 'cc_generate_master_compose', 'cc_docker_compose', 'cc_parse_cli_plugins')
 
-def cc_get_plugin():
+def cc_export():
     """Returns the plugin struct for compose_composer."""
-    return cc_local_composable(
+    return cc_create(
         'azurite',
         os.path.dirname(__file__) + '/azurite.yaml',
         labels=['infra', 'storage'],
