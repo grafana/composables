@@ -15,23 +15,49 @@ services:
       # Authentication settings
       GF_AUTH_ANONYMOUS_ENABLED: 'true'
       GF_AUTH_MANAGED_SERVICE_ACCOUNTS_ENABLED: true
-      
+
       # Server settings
       GF_SERVER_ROOT_URL: http://localhost:${GRAFANA_PORT:-3000}
-      
+
       # Feature toggles for service model integration
       GF_FEATURE_TOGGLES_ENABLE: kubernetesDashboards,kubernetesDashboardsAPI,grafanaAPIServerEnsureKubectlAccess,kubernetesAggregator
-      
+
       # Logging
       GF_LOG_LEVEL: info
       GF_LOG_FILTERS: grafana-apiserver:info,dashboards-k8s-client:warn
-      
+
       # Plugin settings
       GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS: grafana-servicemodel-plugin
 
     volumes:
       - grafana-data:/var/lib/grafana
     restart: unless-stopped
+
+  grafana-debug:
+    image: alpine:latest
+    container_name: grafana-debug
+    user: root
+    depends_on:
+      - grafana
+    volumes:
+      - grafana-data:/var/lib/grafana:ro
+      # Note: Plugin volumes and provisioning files will be added by register_plugin()
+    command:
+      - sh
+      - -c
+      - |
+        echo "Grafana Debug Container Started"
+        echo "Use 'docker exec -it grafana-debug sh' to inspect volumes"
+        echo ""
+        echo "Useful commands:"
+        echo "  ls -laR /var/lib/grafana/plugins/"
+        echo "  ls -laR /etc/grafana/provisioning/plugins/"
+        echo "  cat /etc/grafana/provisioning/plugins/*.yaml"
+        echo ""
+        tail -f /dev/null
+    restart: unless-stopped
+    # profiles:
+    #   - debug
 
 volumes:
   grafana-data:

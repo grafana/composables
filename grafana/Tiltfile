@@ -178,6 +178,7 @@ def register_plugin(plugin_specs):
                 feature_toggles.append(toggles)
 
     # Build compose_overrides structure
+    # Apply same volumes to both grafana and grafana-debug for inspection
     result = {
         'services': {
             'grafana': {
@@ -186,6 +187,9 @@ def register_plugin(plugin_specs):
                     # Will be concatenated with existing via deep merge
                     'GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS': ','.join(unsigned_plugins),
                 },
+            },
+            'grafana-debug': {
+                'volumes': volumes,
             },
         },
     }
