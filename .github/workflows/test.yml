@@ -1,0 +1,46 @@
+name: Test Composables
+
+on:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  # Cancel any running workflow for the same branch when new commits are pushed.
+  # We group both by ref_name (available when CI is triggered by a push to a branch/tag)
+  # and head_ref (available when CI is triggered by a PR).
+  group: '${{ github.ref_name }}-${{ github.head_ref }}'
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test all composables
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout project
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@a520d8659a3d28f1d0f7673ed5cce8f05a41f21e # v3.10.0
+
+      - name: Install docker-compose
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y docker-compose
+
+      - name: Load environment variables
+        run: |
+          if [ -f .env.docker-compose ]; then
+            cat .env.docker-compose >> $GITHUB_ENV
+          fi
+
+      - name: Run tests
+        run: make test
