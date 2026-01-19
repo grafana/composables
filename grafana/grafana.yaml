@@ -32,6 +32,11 @@ services:
     volumes:
       - grafana-data:/var/lib/grafana
     restart: unless-stopped
+    healthcheck:
+      test: ['CMD-SHELL', 'wget --no-verbose --tries=1 --spider http://localhost:3000/api/health || exit 1']
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   grafana-debug:
     image: alpine:latest

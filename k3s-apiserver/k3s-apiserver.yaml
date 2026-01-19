@@ -148,6 +148,11 @@ services:
       - k3s-data:/var/lib/rancher/k3s # Persistence for K3s data (including etcd)
       - k3s-certs:/etc/kubernetes/pki:ro # Mount certificates from shared volume
       - k3s-output:/output # Shared volume for kubeconfig (accessible by other containers)
+    healthcheck:
+      test: ['CMD-SHELL', 'k3s kubectl get --raw /healthz']
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   # Sync kubeconfig to local filesystem for local kubectl access
   kubeconfig-sync:
