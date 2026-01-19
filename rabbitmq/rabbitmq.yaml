@@ -8,7 +8,7 @@ services:
     user: root
     command: >
       sh -c "chown -R rabbitmq:rabbitmq /var/lib/rabbitmq &&
-             su-exec rabbitmq docker-entrypoint.sh rabbitmq-server"
+             gosu rabbitmq docker-entrypoint.sh rabbitmq-server"
     ports:
       - '${RABBITMQ_PORT:-5672}:5672'
       - '${RABBITMQ_MGMT_PORT:-15672}:15672'
