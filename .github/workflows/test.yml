@@ -29,12 +29,16 @@ jobs:
           persist-credentials: false
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@a520d8659a3d28f1d0f7673ed5cce8f05a41f21e # v3.10.0
+        uses: docker/setup-buildx-action@b5ca5147dde4b5c02ae0a00bd9913a0c08df6dbe # v3.10.0
 
       - name: Install docker-compose
         run: |
           sudo apt-get update
           sudo apt-get install -y docker-compose
+
+      - name: Install Tilt
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/tilt-dev/tilt/master/scripts/install.sh | bash
 
       - name: Load environment variables
         run: |
