@@ -8,7 +8,7 @@
 #   register_aggregator_config()   - Configure API server aggregation for AppPlatform
 #   register_plugin()              - Helper to register Grafana plugins
 
-load('ext://compose_composer', 'cc_import', 'cc_create', 'cc_generate_master_compose', 'cc_docker_compose', 'cc_parse_cli_plugins')
+load('ext://compose_composer', 'cc_import', 'cc_create', 'cc_generate_master_compose', 'cc_docker_compose', 'cc_parse_cli_plugins', 'cc_get_active_profiles')
 
 def provision_plugins(plugin_paths=[]):
     """
@@ -49,6 +49,70 @@ def provision_plugins(plugin_paths=[]):
         },
     }
 
+def _generate_provisioning_file(plugin_name, staging_dir):
+    """
+    Generate a basic provisioning file for a plugin.
+
+    Args:
+        plugin_name: Plugin ID (e.g., 'grafana-irm-app')
+        staging_dir: Directory where provisioning files will be staged
+
+    Returns:
+        Absolute path to the generated provisioning file
+
+    The generated file contains a minimal provisioning configuration:
+        apiVersion: 1
+        apps:
+          - type: <plugin_name>
+            disabled: false
+    """
+    provisioning_content = """apiVersion: 1
+apps:
+  - type: %s
+    disabled: false
+""" % plugin_name
+
+    # Ensure staging directory exists
+    local('mkdir -p "%s/provisioning"' % staging_dir, quiet=True)
+
+    provisioning_path = '%s/provisioning/%s.yaml' % (staging_dir, plugin_name)
+    local('cat > "%s" <<\'EOF\'\n%sEOF' % (provisioning_path, provisioning_content), quiet=True)
+
+    return provisioning_path
+
+def _should_register_plugin(plugin_spec, active_profiles):
+    """
+    Check if a plugin should be registered based on profiles.
+
+    Args:
+        plugin_spec: Plugin specification dict with optional 'profiles' field (list of strings)
+        active_profiles: List of currently active profiles
+
+    Returns:
+        True if plugin should be registered, False otherwise
+
+    Rules:
+        - If plugin has no profiles: always register (backward compatible)
+        - If plugin has profiles: only register if at least one matches active_profiles (OR logic)
+        - If active_profiles is empty and plugin has profiles: do not register
+    """
+    plugin_profiles = plugin_spec.get('profiles', [])
+
+    # No profiles specified = always register (backward compatible)
+    if not plugin_profiles:
+        return True
+
+    # No active profiles = only register plugins without profiles
+    if not active_profiles:
+        return False
+
+    # Check if any of the plugin's profiles are active (OR logic)
+    for profile in plugin_profiles:
+        if profile in active_profiles:
+            return True
+
+    return False
+
 def register_plugin(plugin_specs):
     """
     Helper function to register Grafana plugins.
@@ -68,7 +132,8 @@ def register_plugin(plugin_specs):
                   - Dict: {'source': '...', 'target': '...', 'read_only': bool}
 
             - provisioning_file: str (optional)
-                Absolute path to provisioning YAML file
+                Absolute path to provisioning YAML file.
+                If not provided, a basic provisioning file will be auto-generated.
                 Mounted to: /etc/grafana/provisioning/plugins/{name}.yaml
 
             - depends_on: list[str] (optional)
@@ -78,6 +143,12 @@ def register_plugin(plugin_specs):
             - feature_toggles: str (optional)
                 Comma-separated feature toggles to enable
                 Example: 'labelsV2Enabled,grafanaAPIServerWithExperimentalAPIs'
+
+            - profiles: list[str] (optional)
+                List of profile names. Plugin will only be registered if at least one
+                profile matches the active profiles (CC_PROFILES env var or --profile= flags).
+                If not specified, plugin is always registered (backward compatible).
+                Example: ['irm-app', 'oncall-app']
 
     Returns:
         Dict with compose_overrides structure targeting grafana service
@@ -109,6 +180,31 @@ def register_plugin(plugin_specs):
     if type(plugin_specs) != 'list':
         fail("plugin_specs must be a list of dicts, got: " + str(type(plugin_specs)))
 
+    # Get active profiles from compose_composer
+    # cc_get_active_profiles is loaded at module top, so it's always available
+    active_profiles = cc_get_active_profiles()
+
+    # Filter plugin specs by profile
+    filtered_specs = []
+    for spec in plugin_specs:
+        if type(spec) != 'dict':
+            fail("Each plugin spec must be a dict, got: " + str(type(spec)))
+
+        if _should_register_plugin(spec, active_profiles):
+            filtered_specs.append(spec)
+        else:
+            plugin_name = spec.get('name', '<unknown>')
+            plugin_profiles = spec.get('profiles', [])
+            print('[grafana.register_plugin] Skipping %s (profiles: %s, active: %s)' %
+                  (plugin_name, ','.join(plugin_profiles), ','.join(active_profiles)))
+
+    # If no plugins to register after filtering, return empty compose overrides
+    if not filtered_specs:
+        return {}
+
+    # Use filtered specs for the rest of the function
+    plugin_specs = filtered_specs
+
     # Accumulate modifications
     volumes = []
     depends_on = []
@@ -116,10 +212,7 @@ def register_plugin(plugin_specs):
     feature_toggles = []
 
     for spec in plugin_specs:
-        if type(spec) != 'dict':
-            fail("Each plugin spec must be a dict, got: " + str(type(spec)))
-
-        # Validate required fields
+        # Validate required fields (type already validated during filtering)
         if 'name' not in spec:
             fail("Plugin spec missing required 'name' field: " + str(spec))
         if 'dist' not in spec:
@@ -152,11 +245,16 @@ def register_plugin(plugin_specs):
 
         volumes.append(volume_mount)
 
-        # Handle provisioning file (optional)
+        # Handle provisioning file (auto-generate if not provided)
         if 'provisioning_file' in spec:
             prov_file = spec['provisioning_file']
-            prov_mount = prov_file + ':/etc/grafana/provisioning/plugins/' + name + '.yaml:ro'
-            volumes.append(prov_mount)
+        else:
+            # Auto-generate provisioning file
+            staging_dir = os.getenv('CC_STAGING_DIR', os.getcwd() + '/.cc')
+            prov_file = _generate_provisioning_file(name, staging_dir)
+
+        prov_mount = prov_file + ':/etc/grafana/provisioning/plugins/' + name + '.yaml:ro'
+        volumes.append(prov_mount)
 
         # Collect depends_on (optional)
         if 'depends_on' in spec:
