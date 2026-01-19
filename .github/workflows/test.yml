@@ -43,7 +43,8 @@ jobs:
       - name: Load environment variables
         run: |
           if [ -f .env.docker-compose ]; then
-            cat .env.docker-compose >> $GITHUB_ENV
+            # Filter out comments and empty lines, handle inline comments
+            grep -v '^#' .env.docker-compose | grep -v '^$' | sed 's/#.*//' | sed 's/[[:space:]]*$//' >> $GITHUB_ENV
           fi
 
       - name: Run tests
