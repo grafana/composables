@@ -7,6 +7,8 @@
 #   provision_plugins()            - Helper to mount plugin provisioning directories
 #   register_aggregator_config()   - Configure API server aggregation for AppPlatform
 #   register_plugin()              - Helper to register Grafana plugins
+#   register_dashboards()          - Register dashboards from provisioning directory
+#   configure_data_volume()        - Configure Grafana data volume persistence
 
 load('ext://compose_composer', 'cc_import', 'cc_create', 'cc_generate_master_compose', 'cc_docker_compose', 'cc_parse_cli_plugins', 'cc_get_active_profiles')
 
@@ -292,9 +294,12 @@ def register_plugin(plugin_specs):
         },
     }
 
-    # Add depends_on if specified
+    # Add depends_on if specified (convert list to dict format for proper merging)
     if depends_on:
-        result['services']['grafana']['depends_on'] = depends_on
+        depends_on_dict = {}
+        for dep in depends_on:
+            depends_on_dict[dep] = {'condition': 'service_healthy'}
+        result['services']['grafana']['depends_on'] = depends_on_dict
 
     # Add feature toggles if specified
     if feature_toggles:
@@ -390,6 +395,128 @@ cat /certs/aggregator-config.yaml
                 'depends_on': ['k3s-apiserver'],
                 'volumes': ['k3s-certs:/certs'],
                 'restart': 'no',
+            },
+        },
+    }
+
+def configure_data_volume(enabled=True):
+    """
+    Configure Grafana's data volume persistence mode.
+
+    By default, Grafana uses persistent storage (grafana-data volume).
+    This helper allows you to switch to ephemeral tmpfs storage for testing.
+
+    Args:
+        enabled: bool (default: True)
+            Whether to use persistent storage. If False, uses tmpfs for
+            ephemeral in-memory storage (data lost on container restart).
+
+    Returns:
+        Dict with compose_overrides structure
+
+    Examples:
+        # Disable persistence for ephemeral testing (fresh state each restart)
+        grafana.configure_data_volume(enabled=False)
+
+        # Combine with other helpers
+        modifications=[
+            grafana.register_plugin([{'name': 'my-plugin', 'dist': '...'}]),
+            grafana.configure_data_volume(enabled=False),  # Fresh state each restart
+        ]
+
+    Note:
+        Persistent storage is enabled by default in the base grafana.yaml.
+        This helper only needs to be called when you want ephemeral (tmpfs) storage.
+        The volume name is fixed as 'grafana-data' and cannot be customized due to
+        Docker Compose limitations with mounting multiple volumes to the same path.
+    """
+    if not enabled:
+        # Use tmpfs for ephemeral in-memory storage
+        # tmpfs overrides the default volume mount from grafana.yaml
+        return {
+            'services': {
+                'grafana': {
+                    'tmpfs': ['/var/lib/grafana'],
+                },
+                'grafana-debug': {
+                    'tmpfs': ['/var/lib/grafana'],
+                },
+            },
+        }
+
+    # Enabled - return empty dict (default volume from grafana.yaml is used)
+    return {}
+
+def register_dashboards(dashboards_path):
+    """
+    Register dashboards from a provisioning directory.
+
+    This helper mounts a dashboard provisioning directory containing:
+    - Dashboard provider YAML files (e.g., dashboards.yml)
+    - Dashboard JSON files organized in subdirectories
+
+    The entire directory is mounted to /etc/grafana/provisioning/dashboards/,
+    allowing Grafana to discover all dashboard providers and their dashboard files.
+
+    Args:
+        dashboards_path: str (required)
+            Absolute path to the dashboards provisioning directory.
+            Should contain:
+            - Provider YAML files that define dashboard sources
+            - Subdirectories with dashboard JSON files
+
+    Returns:
+        Dict with compose_overrides structure
+
+    Examples:
+        # Mount dashboards directory
+        grafana.register_dashboards(os.path.dirname(__file__) + '/provisioning/dashboards')
+
+        # Combine with other helpers
+        modifications=[
+            grafana.register_plugin([{'name': 'my-plugin', 'dist': '...'}]),
+            grafana.register_dashboards(APP_DIR + '/provisioning/dashboards'),
+            grafana.configure_data_volume(enabled=True),
+        ]
+
+    Directory Structure Example:
+        provisioning/dashboards/
+        ├── dashboards.yml                  # Provider configuration
+        ├── sample.yaml                     # Additional provider
+        ├── dashboards-agent-management/    # Dashboard JSON files
+        │   └── agent-overview.json
+        ├── dashboards-alloy/               # Dashboard JSON files
+        │   └── alloy-metrics.json
+        └── dashboards-kubernetes/          # Dashboard JSON files
+            └── k8s-cluster.json
+
+    Provider YAML Format:
+        apiVersion: 1
+        providers:
+        - name: dashboards-agent-management
+          folder: "Agent Management"
+          options:
+            path: /etc/grafana/provisioning/dashboards/dashboards-agent-management
+          type: file
+    """
+    # Input validation
+    if not dashboards_path:
+        fail("dashboards_path cannot be empty")
+
+    if not dashboards_path.startswith('/'):
+        fail("dashboards_path must be an absolute path, got: " + dashboards_path)
+
+    return {
+        'services': {
+            'grafana': {
+                'volumes': [
+                    dashboards_path + ':/etc/grafana/provisioning/dashboards',
+                ],
+            },
+            'grafana-debug': {
+                'volumes': [
+                    dashboards_path + ':/etc/grafana/provisioning/dashboards:ro',
+                ],
             },
         },
     }

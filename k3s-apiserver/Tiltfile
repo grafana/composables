@@ -3,6 +3,7 @@
 #
 # Exports:
 #   cc_export()              - Returns plugin struct for compose_composer
+#   get_wire_when()              - Conditional wiring rules for Grafana integration
 #   get_kubeconfig_path()        - Returns path to the kubeconfig output
 #   register_crds()              - Generate compose_overrides to mount CRDs into crd-loader
 #   register_webhook()           - Generate compose_overrides to configure webhook operators
@@ -423,6 +424,35 @@ echo "✓ Kubeconfig ready for local kubectl usage at $DEST"
         trigger_mode=TRIGGER_MODE_AUTO,
         labels=['k8s'],
     )
+
+def get_wire_when():
+    """
+    Declare conditional wiring rules for k3s-apiserver.
+
+    When grafana is loaded alongside k3s-apiserver, this adds the necessary
+    feature toggles to enable Grafana's Kubernetes aggregation and API server
+    features.
+
+    The aggregator requires proxy client certificates which are provided by
+    k3s-apiserver via the wire_when rule in grafana's Tiltfile.
+
+    Returns:
+        Dict mapping dependency names to their modifications
+    """
+    return {
+        # When grafana is loaded, enable Kubernetes features
+        'grafana': {
+            'services': {
+                'grafana': {
+                    'environment': {
+                        # Enable Kubernetes aggregator and API server features
+                        # These require the proxy client certificates mounted by grafana's wire_when
+                        'GF_FEATURE_TOGGLES_ENABLE': 'kubernetesAggregator,grafanaAPIServerEnsureKubectlAccess',
+                    },
+                },
+            },
+        },
+    }
 
 def k3s_test_exports():
     """Returns internal functions for testing."""
