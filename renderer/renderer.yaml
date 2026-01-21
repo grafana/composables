@@ -3,11 +3,11 @@ services:
     image: grafana/grafana-image-renderer:latest
     ports:
       - '${RENDERER_PORT:-8081}:8081'
-    # Healthcheck disabled - renderer image doesn't include curl/wget by default
-    # healthcheck:
-    #   test: ['CMD-SHELL', 'curl -f http://localhost:8081/ || exit 1']
-    #   interval: 10s
-    #   timeout: 5s
-    #   retries: 5
+    healthcheck:
+      # Use bash /dev/tcp for healthcheck (curl/wget not included in image)
+      test: ['CMD-SHELL', 'timeout 1 bash -c "</dev/tcp/127.0.0.1/8081" || exit 1']
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
 volumes: {}

@@ -1,17 +1,18 @@
 services:
   loki:
-    image: grafana/loki:latest
+    # Build custom image with healthcheck support (extends grafana/loki:latest)
+    # The official loki image uses distroless base without curl/wget/sh
+    # Custom Dockerfile adds static httpcheck binary for healthchecks
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: loki-with-healthcheck:latest
     ports:
       - '${LOKI_HTTP_PORT:-3100}:3100'
     command: -config.file=/etc/loki/local-config.yaml
     volumes:
       - loki-data:/loki
-    # Healthcheck disabled - minimal loki image doesn't include curl/wget/sh
-    # healthcheck:
-    #   test: ['CMD-SHELL', 'curl -f http://localhost:3100/ready || exit 1']
-    #   interval: 10s
-    #   timeout: 5s
-    #   retries: 5
+    # Healthcheck is defined in Dockerfile using static httpcheck binary
 
 volumes:
   loki-data:

@@ -9,11 +9,12 @@ services:
     #   - /var/lib/docker/containers:/var/lib/docker/containers:ro
     #   - /var/run/docker.sock:/var/run/docker.sock
     command: -config.file=/etc/promtail/config.yml
-    # Healthcheck disabled - minimal promtail image doesn't include curl/wget/sh
-    # healthcheck:
-    #   test: ['CMD-SHELL', 'curl -f http://localhost:3100/ready || exit 1']
-    #   interval: 10s
-    #   timeout: 5s
-    #   retries: 5
+    healthcheck:
+      # Use bash /dev/tcp for healthcheck (wget removed due to CVE-2024-38428)
+      # See: https://github.com/grafana/loki/pull/15101
+      test: ['CMD-SHELL', 'timeout 1 bash -c "</dev/tcp/127.0.0.1/9080" || exit 1']
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
 volumes: {}
