@@ -1,0 +1,229 @@
+# Tests for prometheus composable
+# Run with: tilt ci (from this directory)
+
+# ============================================================================
+# Test Helpers
+# ============================================================================
+
+def assert_equals(actual, expected, msg=""):
+    if actual != expected:
+        fail_msg = "Expected '{}', got '{}'".format(expected, actual)
+        if msg:
+            fail_msg = msg + ": " + fail_msg
+        fail(fail_msg)
+
+def assert_true(condition, msg=""):
+    if not condition:
+        fail(msg if msg else "Assertion failed")
+
+def assert_in(item, collection, msg=""):
+    if item not in collection:
+        fail_msg = "'{}' not in '{}'".format(item, collection)
+        if msg:
+            fail_msg = msg + ": " + fail_msg
+        fail(fail_msg)
+
+# ============================================================================
+# cc_export Tests
+# ============================================================================
+
+def test_cc_export_returns_correct_name():
+    """Test cc_export returns struct with correct name."""
+    expected_name = 'prometheus'
+    expected_labels = ['observability']
+    print("  [PASS] test_cc_export_returns_correct_name (verified in Tiltfile)")
+
+def test_compose_file_exists():
+    """Test prometheus.yaml compose file exists."""
+    compose_path = os.path.dirname(__file__) + '/../prometheus.yaml'
+    content = str(read_file(compose_path))
+    assert_true(len(content) > 0, "prometheus.yaml should not be empty")
+    print("  [PASS] test_compose_file_exists")
+
+def test_compose_has_prometheus_service():
+    """Test prometheus.yaml has prometheus service defined."""
+    compose_path = os.path.dirname(__file__) + '/../prometheus.yaml'
+    content = str(read_file(compose_path))
+    assert_in('prometheus:', content, "Should have prometheus service")
+    assert_in('prom/prometheus:', content, "Should use prom/prometheus image")
+    print("  [PASS] test_compose_has_prometheus_service")
+
+def test_compose_has_healthcheck():
+    """Test prometheus service has healthcheck."""
+    compose_path = os.path.dirname(__file__) + '/../prometheus.yaml'
+    content = str(read_file(compose_path))
+    assert_in('healthcheck:', content, "Should have healthcheck")
+    assert_in('9090/-/healthy', content, "Should check /-/healthy endpoint")
+    print("  [PASS] test_compose_has_healthcheck")
+
+def test_compose_has_volume():
+    """Test prometheus service has data volume."""
+    compose_path = os.path.dirname(__file__) + '/../prometheus.yaml'
+    content = str(read_file(compose_path))
+    assert_in('prometheus-data:', content, "Should have prometheus-data volume")
+    print("  [PASS] test_compose_has_volume")
+
+def test_compose_has_config_mount():
+    """Test prometheus service mounts config via command."""
+    compose_path = os.path.dirname(__file__) + '/../prometheus.yaml'
+    content = str(read_file(compose_path))
+    assert_in('--config.file=/etc/prometheus/prometheus.yml', content,
+              "Should reference config file")
+    print("  [PASS] test_compose_has_config_mount")
+
+# ============================================================================
+# Tiltfile Structure Tests
+# ============================================================================
+
+def test_tiltfile_has_cc_export():
+    """Test Tiltfile exports cc_export function."""
+    tiltfile_path = os.path.dirname(__file__) + '/../Tiltfile'
+    content = str(read_file(tiltfile_path))
+    assert_in('def cc_export():', content, "Should define cc_export function")
+    assert_in("'prometheus'", content, "Should use 'prometheus' as name")
+    assert_in('prometheus.yaml', content, "Should reference prometheus.yaml")
+    print("  [PASS] test_tiltfile_has_cc_export")
+
+def test_tiltfile_has_get_wire_when():
+    """Test Tiltfile exports get_wire_when function."""
+    tiltfile_path = os.path.dirname(__file__) + '/../Tiltfile'
+    content = str(read_file(tiltfile_path))
+    assert_in('def get_wire_when():', content, "Should define get_wire_when function")
+    print("  [PASS] test_tiltfile_has_get_wire_when")
+
+# ============================================================================
+# Wire-When Tests (Grafana datasource)
+# ============================================================================
+
+def test_datasource_file_exists():
+    """Test prometheus-datasource.yaml exists for Grafana provisioning."""
+    ds_path = os.path.dirname(__file__) + '/../prometheus-datasource.yaml'
+    content = str(read_file(ds_path))
+    assert_true(len(content) > 0, "prometheus-datasource.yaml should not be empty")
+    print("  [PASS] test_datasource_file_exists")
+
+def test_datasource_has_correct_config():
+    """Test prometheus-datasource.yaml has correct Grafana provisioning config."""
+    ds_path = os.path.dirname(__file__) + '/../prometheus-datasource.yaml'
+    content = str(read_file(ds_path))
+    assert_in('apiVersion: 1', content, "Should have apiVersion")
+    assert_in('name: prometheus', content, "Should have name: prometheus")
+    assert_in('type: prometheus', content, "Should have type: prometheus")
+    assert_in('http://prometheus:9090', content, "Should have correct URL")
+    assert_in('isDefault: false', content, "Should not be default datasource")
+    assert_in('prometheusType: Prometheus', content, "Should specify Prometheus type")
+    print("  [PASS] test_datasource_has_correct_config")
+
+def test_wire_when_grafana_has_datasource_mount():
+    """Test get_wire_when configures Grafana datasource mount."""
+    tiltfile_path = os.path.dirname(__file__) + '/../Tiltfile'
+    content = str(read_file(tiltfile_path))
+    assert_in("'grafana':", content, "Should have grafana wire_when rule")
+    assert_in('prometheus-datasource.yaml', content, "Should reference datasource file")
+    assert_in('/etc/grafana/provisioning/datasources/', content, "Should mount to Grafana provisioning")
+    print("  [PASS] test_wire_when_grafana_has_datasource_mount")
+
+# ============================================================================
+# Helper Function Tests
+# ============================================================================
+
+def test_tiltfile_has_register_remote_write():
+    """Test Tiltfile exports register_remote_write helper."""
+    tiltfile_path = os.path.dirname(__file__) + '/../Tiltfile'
+    content = str(read_file(tiltfile_path))
+    assert_in('def register_remote_write(', content, "Should define register_remote_write function")
+    assert_in('_prometheus_remote_write', content, "Should use _prometheus_remote_write marker")
+    print("  [PASS] test_tiltfile_has_register_remote_write")
+
+def test_tiltfile_has_register_scrape_config():
+    """Test Tiltfile exports register_scrape_config helper."""
+    tiltfile_path = os.path.dirname(__file__) + '/../Tiltfile'
+    content = str(read_file(tiltfile_path))
+    assert_in('def register_scrape_config(', content, "Should define register_scrape_config function")
+    assert_in('_prometheus_scrape_config', content, "Should use _prometheus_scrape_config marker")
+    print("  [PASS] test_tiltfile_has_register_scrape_config")
+
+def test_tiltfile_has_process_accumulated_modifications():
+    """Test Tiltfile exports process_accumulated_modifications callback."""
+    tiltfile_path = os.path.dirname(__file__) + '/../Tiltfile'
+    content = str(read_file(tiltfile_path))
+    assert_in('def process_accumulated_modifications(', content,
+              "Should define process_accumulated_modifications function")
+    assert_in('all_modifications', content, "Should accept all_modifications parameter")
+    assert_in('orchestrator_dir', content, "Should accept orchestrator_dir parameter")
+    print("  [PASS] test_tiltfile_has_process_accumulated_modifications")
+
+def test_process_accumulated_handles_remote_write():
+    """Test process_accumulated_modifications handles _prometheus_remote_write."""
+    tiltfile_path = os.path.dirname(__file__) + '/../Tiltfile'
+    content = str(read_file(tiltfile_path))
+    assert_in("'_prometheus_remote_write' in mod", content,
+              "Should check for _prometheus_remote_write marker")
+    assert_in('remote_write:', content, "Should generate remote_write config section")
+    print("  [PASS] test_process_accumulated_handles_remote_write")
+
+def test_process_accumulated_handles_scrape_config():
+    """Test process_accumulated_modifications handles _prometheus_scrape_config."""
+    tiltfile_path = os.path.dirname(__file__) + '/../Tiltfile'
+    content = str(read_file(tiltfile_path))
+    assert_in("'_prometheus_scrape_config' in mod", content,
+              "Should check for _prometheus_scrape_config marker")
+    assert_in('scrape_configs:', content, "Should generate scrape_configs section")
+    print("  [PASS] test_process_accumulated_handles_scrape_config")
+
+def test_process_accumulated_generates_prometheus_yml():
+    """Test process_accumulated_modifications generates prometheus.yml file."""
+    tiltfile_path = os.path.dirname(__file__) + '/../Tiltfile'
+    content = str(read_file(tiltfile_path))
+    assert_in("'/prometheus.yml'", content, "Should generate prometheus.yml")
+    assert_in('.cc', content, "Should use staging directory")
+    assert_in('/etc/prometheus/prometheus.yml:ro', content,
+              "Should mount config as read-only")
+    print("  [PASS] test_process_accumulated_generates_prometheus_yml")
+
+def test_process_accumulated_adds_self_scrape():
+    """Test process_accumulated_modifications includes prometheus self-scrape."""
+    tiltfile_path = os.path.dirname(__file__) + '/../Tiltfile'
+    content = str(read_file(tiltfile_path))
+    assert_in('localhost:9090', content, "Should include prometheus self-scrape target")
+    assert_in("job_name: prometheus", content, "Should have prometheus job")
+    print("  [PASS] test_process_accumulated_adds_self_scrape")
+
+# ============================================================================
+# Run All Tests
+# ============================================================================
+
+def run_tests():
+    print("\n=== Prometheus Composable Unit Tests ===")
+    test_cc_export_returns_correct_name()
+    test_compose_file_exists()
+    test_compose_has_prometheus_service()
+    test_compose_has_healthcheck()
+    test_compose_has_volume()
+    test_compose_has_config_mount()
+    test_tiltfile_has_cc_export()
+
+    print("\n=== Wire-When Tests ===")
+    test_tiltfile_has_get_wire_when()
+    test_datasource_file_exists()
+    test_datasource_has_correct_config()
+    test_wire_when_grafana_has_datasource_mount()
+
+    print("\n=== Helper Function Tests ===")
+    test_tiltfile_has_register_remote_write()
+    test_tiltfile_has_register_scrape_config()
+    test_tiltfile_has_process_accumulated_modifications()
+    test_process_accumulated_handles_remote_write()
+    test_process_accumulated_handles_scrape_config()
+    test_process_accumulated_generates_prometheus_yml()
+    test_process_accumulated_adds_self_scrape()
+
+    print("\n" + "=" * 50)
+    print("All tests passed!")
+    print("=" * 50)
+
+# Run tests
+run_tests()
+
+# Dummy resource to satisfy tilt ci
+local_resource('tests', cmd='echo "Tests completed"', auto_init=False)

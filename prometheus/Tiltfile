@@ -2,9 +2,193 @@
 # Provides Prometheus metrics collection and storage.
 #
 # Exports:
-#   cc_export()    - Returns plugin struct for compose_composer
+#   cc_export()                         - Returns plugin struct for compose_composer
+#   get_wire_when()                     - Conditional wiring rules (auto-register datasource in Grafana)
+#   register_remote_write()             - Declare remote_write targets
+#   register_scrape_config()            - Declare scrape configs
+#   process_accumulated_modifications() - Callback invoked by compose_composer
 
 load('ext://compose_composer', 'cc_create', 'cc_generate_master_compose', 'cc_docker_compose', 'cc_parse_cli_plugins')
+
+def register_remote_write(remote_write_specs):
+    """
+    Declare remote_write targets for Prometheus.
+
+    This is a declarative marker - it doesn't configure remote_write directly.
+    Instead, compose_composer accumulates all requirements and calls
+    process_accumulated_modifications() to generate the final prometheus.yml.
+
+    Args:
+        remote_write_specs: List of remote_write config dicts, each with:
+            - url: str (required) - Remote write endpoint
+            - name: str (optional) - Name for logging/identification
+
+    Returns:
+        Dict with _prometheus_remote_write marker for compose_composer to process
+
+    Example:
+        prometheus = cc_import(
+            name='prometheus',
+            url='...',
+            imports=['register_remote_write'],
+        )
+
+        def cc_export():
+            return cc_create(
+                'my-app',
+                ...,
+                prometheus, mimir,
+                modifications=[
+                    prometheus.register_remote_write([
+                        {'url': 'http://mimir:9009/api/v1/push', 'name': 'mimir'},
+                    ]),
+                ],
+            )
+    """
+    return {
+        '_prometheus_remote_write': remote_write_specs,
+        '_target': 'prometheus',
+    }
+
+def register_scrape_config(scrape_configs):
+    """
+    Declare scrape_configs for Prometheus.
+
+    This is a declarative marker - compose_composer accumulates all scrape configs
+    and generates a combined prometheus.yml via process_accumulated_modifications().
+
+    Args:
+        scrape_configs: List of scrape_config dicts matching Prometheus format
+
+    Returns:
+        Dict with _prometheus_scrape_config marker for compose_composer to process
+
+    Example:
+        prometheus = cc_import(
+            name='prometheus',
+            url='...',
+            imports=['register_scrape_config'],
+        )
+
+        def cc_export():
+            return cc_create(
+                'my-app',
+                ...,
+                prometheus,
+                modifications=[
+                    prometheus.register_scrape_config([
+                        {
+                            'job_name': 'my-service',
+                            'static_configs': [{'targets': ['my-service:8080']}],
+                        },
+                    ]),
+                ],
+            )
+    """
+    return {
+        '_prometheus_scrape_config': scrape_configs,
+        '_target': 'prometheus',
+    }
+
+def process_accumulated_modifications(all_modifications, orchestrator_dir):
+    """
+    Collect all prometheus config markers and generate combined prometheus.yml.
+
+    This callback is automatically invoked by compose_composer AFTER collecting
+    all modifications from root + CLI plugins. Prometheus handles its own
+    config generation from accumulated markers.
+
+    Args:
+        all_modifications: List of all modification dicts from all plugins
+        orchestrator_dir: Directory for generating prometheus.yml
+
+    Returns:
+        Dict with compose_overrides to mount the generated config,
+        or {} if no configuration markers found
+    """
+    remote_writes = []
+    scrape_configs = []
+
+    for mod in all_modifications:
+        if type(mod) == 'dict':
+            if '_prometheus_remote_write' in mod:
+                specs = mod['_prometheus_remote_write']
+                if type(specs) == 'list':
+                    remote_writes.extend(specs)
+            if '_prometheus_scrape_config' in mod:
+                configs = mod['_prometheus_scrape_config']
+                if type(configs) == 'list':
+                    scrape_configs.extend(configs)
+
+    # Always add base prometheus self-scrape config
+    base_scrape = {
+        'job_name': 'prometheus',
+        'static_configs': [{'targets': ['localhost:9090']}],
+    }
+
+    # Build prometheus.yml content
+    config_lines = [
+        'global:',
+        '  scrape_interval: 15s',
+        '  evaluation_interval: 15s',
+        '',
+    ]
+
+    # Add remote_write section if any targets configured
+    if remote_writes:
+        names = [rw.get('name', rw.get('url', 'unknown')) for rw in remote_writes]
+        print('[prometheus] Configuring remote_write targets: ' + ', '.join(names))
+        config_lines.append('remote_write:')
+        for rw in remote_writes:
+            if 'url' not in rw:
+                fail('remote_write spec must have "url" field: ' + str(rw))
+            config_lines.append('  - url: ' + rw['url'])
+            # Add optional fields
+            if rw.get('name'):
+                config_lines.append('    name: ' + rw['name'])
+        config_lines.append('')
+
+    # Add scrape_configs section
+    config_lines.append('scrape_configs:')
+
+    # Add base prometheus self-scrape
+    config_lines.append('  - job_name: prometheus')
+    config_lines.append('    static_configs:')
+    config_lines.append('      - targets:')
+    config_lines.append("          - 'localhost:9090'")
+
+    # Add accumulated scrape configs
+    for sc in scrape_configs:
+        if 'job_name' not in sc:
+            fail('scrape_config must have "job_name" field: ' + str(sc))
+        config_lines.append('  - job_name: ' + sc['job_name'])
+        if sc.get('static_configs'):
+            config_lines.append('    static_configs:')
+            for static in sc['static_configs']:
+                if static.get('targets'):
+                    config_lines.append('      - targets:')
+                    for target in static['targets']:
+                        config_lines.append("          - '" + target + "'")
+        if sc.get('metrics_path'):
+            config_lines.append('    metrics_path: ' + sc['metrics_path'])
+
+    config_content = '\n'.join(config_lines) + '\n'
+
+    # Generate prometheus.yml in staging directory
+    staging_dir = orchestrator_dir + '/.cc'
+    config_path = staging_dir + '/prometheus.yml'
+    local('mkdir -p ' + staging_dir, quiet=True)
+    local('cat > ' + config_path + " <<'EOF'\n" + config_content + 'EOF\n', quiet=True)
+    print('[prometheus] Generated config: ' + config_path)
+
+    return {
+        'services': {
+            'prometheus': {
+                'volumes': [config_path + ':/etc/prometheus/prometheus.yml:ro'],
+            },
+        },
+        '_target': 'prometheus',
+    }
 
 def cc_export():
     """Returns the plugin struct for compose_composer."""
@@ -13,4 +197,25 @@ def cc_export():
         os.path.dirname(__file__) + '/prometheus.yaml',
         labels=['observability'],
     )
+
+def get_wire_when():
+    """
+    Declare conditional wiring rules.
+
+    When Grafana is present, automatically register Prometheus as a datasource.
+    This follows the symmetric pattern - any project using both Prometheus and Grafana
+    gets the datasource configured automatically.
+    """
+    return {
+        'grafana': {
+            'services': {
+                'grafana': {
+                    'depends_on': ['prometheus'],
+                    'volumes': [
+                        os.path.dirname(__file__) + '/prometheus-datasource.yaml:/etc/grafana/provisioning/datasources/prometheus.yaml:ro',
+                    ],
+                },
+            },
+        },
+    }
 
