@@ -9,6 +9,7 @@
 #   register_webhook()           - Generate compose_overrides to configure webhook operators
 #   register_admission_config()  - Generate compose_overrides to register admission webhooks
 #   register_roles()             - Generate compose_overrides to apply RBAC roles and bindings
+#   create_namespace()           - Generate compose_overrides to create Kubernetes namespaces
 #   copy_kubeconfig_local()      - Create local_resource to copy kubeconfig to local path
 
 load('ext://compose_composer', 'cc_create', 'cc_generate_master_compose', 'cc_docker_compose', 'cc_parse_cli_plugins')
@@ -369,6 +370,162 @@ echo 'RBAC configuration loaded successfully'
         },
     }
 
+def create_namespace(namespace_specs):
+    """
+    Create Kubernetes namespaces in k3s-apiserver.
+
+    This helper creates a namespace-setup service that applies namespace
+    manifests to the k3s cluster.
+
+    Args:
+        namespace_specs: List of dicts, each with:
+            - name: str         - Namespace name (required)
+            - labels: dict      - Optional labels to apply
+
+    Returns:
+        Dict with compose_overrides structure
+
+    Example:
+        k3s = cc_import(
+            name='k3s-apiserver',
+            url='...',
+            imports=['create_namespace'],
+        )
+
+        def cc_export():
+            return cc_create(
+                'my-app',
+                os.path.dirname(__file__) + '/docker-compose.yaml',
+                k3s,
+                modifications=[
+                    k3s.create_namespace(namespace_specs=[
+                        {'name': 'stacks-1001'},
+                        {'name': 'monitoring', 'labels': {'env': 'dev'}},
+                    ]),
+                ],
+            )
+    """
+    if not namespace_specs:
+        return {}
+
+    if type(namespace_specs) != 'list':
+        fail("namespace_specs must be a list, got: " + str(type(namespace_specs)))
+
+    # Build namespace YAML manifests
+    namespace_yamls = []
+    for spec in namespace_specs:
+        if type(spec) != 'dict':
+            fail("Each namespace spec must be a dict, got: " + str(type(spec)))
+
+        if 'name' not in spec:
+            fail("Namespace spec must have 'name' field")
+
+        ns_name = spec['name']
+        yaml_lines = [
+            'apiVersion: v1',
+            'kind: Namespace',
+            'metadata:',
+            '  name: ' + ns_name,
+        ]
+
+        if spec.get('labels'):
+            yaml_lines.append('  labels:')
+            for k, v in spec['labels'].items():
+                yaml_lines.append('    %s: "%s"' % (k, v))
+
+        namespace_yamls.append('\n'.join(yaml_lines))
+
+    all_ns_yaml = '\n---\n'.join(namespace_yamls)
+
+    # Generate unique service name using hash to avoid conflicts
+    # when multiple orchestrators create namespaces
+    specs_hash = str(abs(hash(str(namespace_specs))))[:8]
+    service_name = 'namespace-setup-' + specs_hash
+
+    return {
+        'services': {
+            service_name: {
+                'image': 'bitnami/kubectl:latest',
+                'depends_on': ['k3s-apiserver'],
+                'volumes': ['k3s-output:/output:ro'],
+                'entrypoint': ['/bin/sh'],
+                'command': [
+                    '-c',
+                    '''
+echo 'Namespace setup starting...'
+
+echo 'Waiting for kubeconfig to be available...'
+while [ ! -f /output/kubeconfig.yaml ]; do
+  echo 'Kubeconfig not yet available, waiting...'
+  sleep 2
+done
+
+echo 'Creating modified kubeconfig for container networking...'
+sed 's/127\\.0\\.0\\.1:6443/k3s-apiserver:6443/g' /output/kubeconfig.yaml > /tmp/kubeconfig-internal.yaml
+
+echo 'Creating namespaces...'
+cat << 'EOF' | kubectl --kubeconfig=/tmp/kubeconfig-internal.yaml apply -f -
+%s
+EOF
+
+echo 'Namespaces created successfully'
+                    ''' % all_ns_yaml,
+                ],
+                'restart': 'no',
+            },
+        },
+    }
+
+def enable_in_cluster_config(service_names):
+    """
+    Generate compose_overrides to inject KUBERNETES_SERVICE_HOST and KUBERNETES_SERVICE_PORT
+    environment variables for services using in-cluster authentication.
+
+    In a real Kubernetes cluster, these variables are automatically injected into pods.
+    This helper provides them for Docker Compose services connecting to k3s-apiserver.
+
+    Args:
+        service_names: List of service names that need in-cluster config
+
+    Returns:
+        Dict with compose_overrides structure
+
+    Example:
+        k3s = cc_import(
+            name='k3s-apiserver',
+            url='...',
+            imports=['enable_in_cluster_config'],
+        )
+
+        def cc_export():
+            return cc_create(
+                'my-app',
+                os.path.dirname(__file__) + '/docker-compose.yaml',
+                k3s,
+                modifications=[
+                    k3s.enable_in_cluster_config(service_names=['my-operator']),
+                ],
+            )
+    """
+    if not service_names:
+        return {}
+
+    if type(service_names) != 'list':
+        fail("service_names must be a list, got: " + str(type(service_names)))
+
+    services_config = {}
+    for service_name in service_names:
+        services_config[service_name] = {
+            'environment': {
+                'KUBERNETES_SERVICE_HOST': 'k3s-apiserver',
+                'KUBERNETES_SERVICE_PORT': '6443',
+            },
+        }
+
+    return {
+        'services': services_config,
+    }
+
 def copy_kubeconfig_local(dest_path, resource_name='kubeconfig-copy'):
     """
     Creates a Tilt local_resource that waits for kubeconfig to be synced,
@@ -461,6 +618,8 @@ def k3s_test_exports():
         'register_webhook': register_webhook,
         'register_admission_config': register_admission_config,
         'register_roles': register_roles,
+        'create_namespace': create_namespace,
+        'enable_in_cluster_config': enable_in_cluster_config,
         'copy_kubeconfig_local': copy_kubeconfig_local,
     }
 

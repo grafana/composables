@@ -86,6 +86,80 @@ def register_webhook(operator_specs):
         },
     }
 
+def create_namespace(namespace_specs):
+    """
+    Create Kubernetes namespaces in k3s-apiserver.
+    """
+    if not namespace_specs:
+        return {}
+
+    if type(namespace_specs) != 'list':
+        fail("namespace_specs must be a list, got: " + str(type(namespace_specs)))
+
+    # Build namespace YAML manifests
+    namespace_yamls = []
+    for spec in namespace_specs:
+        if type(spec) != 'dict':
+            fail("Each namespace spec must be a dict, got: " + str(type(spec)))
+
+        if 'name' not in spec:
+            fail("Namespace spec must have 'name' field")
+
+        ns_name = spec['name']
+        yaml_lines = [
+            'apiVersion: v1',
+            'kind: Namespace',
+            'metadata:',
+            '  name: ' + ns_name,
+        ]
+
+        if spec.get('labels'):
+            yaml_lines.append('  labels:')
+            for k, v in spec['labels'].items():
+                yaml_lines.append('    %s: "%s"' % (k, v))
+
+        namespace_yamls.append('\n'.join(yaml_lines))
+
+    all_ns_yaml = '\n---\n'.join(namespace_yamls)
+
+    # Generate unique service name using hash to avoid conflicts
+    specs_hash = str(abs(hash(str(namespace_specs))))[:8]
+    service_name = 'namespace-setup-' + specs_hash
+
+    return {
+        'services': {
+            service_name: {
+                'image': 'bitnami/kubectl:latest',
+                'depends_on': ['k3s-apiserver'],
+                'volumes': ['k3s-output:/output:ro'],
+                'entrypoint': ['/bin/sh'],
+                'command': [
+                    '-c',
+                    '''
+echo 'Namespace setup starting...'
+
+echo 'Waiting for kubeconfig to be available...'
+while [ ! -f /output/kubeconfig.yaml ]; do
+  echo 'Kubeconfig not yet available, waiting...'
+  sleep 2
+done
+
+echo 'Creating modified kubeconfig for container networking...'
+sed 's/127\\.0\\.0\\.1:6443/k3s-apiserver:6443/g' /output/kubeconfig.yaml > /tmp/kubeconfig-internal.yaml
+
+echo 'Creating namespaces...'
+cat << 'EOF' | kubectl --kubeconfig=/tmp/kubeconfig-internal.yaml apply -f -
+%s
+EOF
+
+echo 'Namespaces created successfully'
+                    ''' % all_ns_yaml,
+                ],
+                'restart': 'no',
+            },
+        },
+    }
+
 # ============================================================================
 # Test Helpers
 # ============================================================================
@@ -256,6 +330,128 @@ def test_register_webhook_both_services():
     print("  [PASS] test_register_webhook_both_services")
 
 # ============================================================================
+# create_namespace Tests
+# ============================================================================
+
+def test_create_namespace_basic():
+    """Test create_namespace with single namespace."""
+    result = create_namespace(namespace_specs=[{'name': 'stacks-1001'}])
+    assert_true('services' in result, "Result should have services key")
+
+    # Find the namespace-setup service (name includes hash)
+    service_names = list(result['services'].keys())
+    assert_equals(len(service_names), 1, "Should have exactly one service")
+    assert_true(service_names[0].startswith('namespace-setup-'), "Service name should start with namespace-setup-")
+    print("  [PASS] test_create_namespace_basic")
+
+def test_create_namespace_service_config():
+    """Test create_namespace creates properly configured service."""
+    result = create_namespace(namespace_specs=[{'name': 'test-ns'}])
+    service_name = list(result['services'].keys())[0]
+    service = result['services'][service_name]
+
+    assert_equals(service['image'], 'bitnami/kubectl:latest', "Should use kubectl image")
+    assert_in('k3s-apiserver', service['depends_on'], "Should depend on k3s-apiserver")
+    assert_in('k3s-output:/output:ro', service['volumes'], "Should mount k3s-output volume")
+    assert_equals(service['restart'], 'no', "Should not restart")
+    print("  [PASS] test_create_namespace_service_config")
+
+def test_create_namespace_yaml_content():
+    """Test create_namespace generates correct namespace YAML."""
+    result = create_namespace(namespace_specs=[{'name': 'my-namespace'}])
+    service_name = list(result['services'].keys())[0]
+    command = result['services'][service_name]['command'][1]
+
+    assert_in('apiVersion: v1', command, "Should have apiVersion")
+    assert_in('kind: Namespace', command, "Should have kind: Namespace")
+    assert_in('name: my-namespace', command, "Should have namespace name")
+    print("  [PASS] test_create_namespace_yaml_content")
+
+def test_create_namespace_with_labels():
+    """Test create_namespace with labels."""
+    result = create_namespace(namespace_specs=[
+        {'name': 'labeled-ns', 'labels': {'env': 'dev', 'team': 'slo'}}
+    ])
+    service_name = list(result['services'].keys())[0]
+    command = result['services'][service_name]['command'][1]
+
+    assert_in('labels:', command, "Should have labels section")
+    assert_in('env: "dev"', command, "Should have env label")
+    assert_in('team: "slo"', command, "Should have team label")
+    print("  [PASS] test_create_namespace_with_labels")
+
+def test_create_namespace_multiple():
+    """Test create_namespace with multiple namespaces."""
+    result = create_namespace(namespace_specs=[
+        {'name': 'ns1'},
+        {'name': 'ns2'},
+        {'name': 'ns3'},
+    ])
+    service_name = list(result['services'].keys())[0]
+    command = result['services'][service_name]['command'][1]
+
+    # Should have all three namespaces separated by ---
+    assert_in('name: ns1', command, "Should have ns1")
+    assert_in('name: ns2', command, "Should have ns2")
+    assert_in('name: ns3', command, "Should have ns3")
+    assert_in('---', command, "Should have YAML document separator")
+    print("  [PASS] test_create_namespace_multiple")
+
+def test_create_namespace_empty_list():
+    """Test create_namespace with empty list returns empty dict."""
+    result = create_namespace(namespace_specs=[])
+    assert_equals(result, {}, "Empty namespace_specs should return empty dict")
+    print("  [PASS] test_create_namespace_empty_list")
+
+def test_create_namespace_unique_service_names():
+    """Test create_namespace generates unique service names for different specs."""
+    result1 = create_namespace(namespace_specs=[{'name': 'ns1'}])
+    result2 = create_namespace(namespace_specs=[{'name': 'ns2'}])
+
+    service_name1 = list(result1['services'].keys())[0]
+    service_name2 = list(result2['services'].keys())[0]
+
+    assert_true(service_name1 != service_name2, "Different specs should get unique service names")
+    print("  [PASS] test_create_namespace_unique_service_names")
+
+def test_create_namespace_deterministic_hash():
+    """Test create_namespace generates deterministic hash for same specs."""
+    specs = [{'name': 'stacks-1001'}]
+    result1 = create_namespace(namespace_specs=specs)
+    result2 = create_namespace(namespace_specs=specs)
+
+    service_name1 = list(result1['services'].keys())[0]
+    service_name2 = list(result2['services'].keys())[0]
+
+    assert_equals(service_name1, service_name2, "Same specs should generate same service name")
+    print("  [PASS] test_create_namespace_deterministic_hash")
+
+def test_create_namespace_kubeconfig_patching():
+    """Test create_namespace patches kubeconfig for container networking."""
+    result = create_namespace(namespace_specs=[{'name': 'test-ns'}])
+    service_name = list(result['services'].keys())[0]
+    command = result['services'][service_name]['command'][1]
+
+    # Should patch 127.0.0.1:6443 to k3s-apiserver:6443
+    assert_in('127\\.0\\.0\\.1:6443', command, "Should patch localhost address")
+    assert_in('k3s-apiserver:6443', command, "Should use k3s-apiserver service name")
+    print("  [PASS] test_create_namespace_kubeconfig_patching")
+
+def test_create_namespace_real_world_slo():
+    """Test create_namespace with SLO's stacks-1001 pattern."""
+    result = create_namespace(namespace_specs=[
+        {'name': 'stacks-1001', 'labels': {'stack-id': '1001'}}
+    ])
+    service_name = list(result['services'].keys())[0]
+    service = result['services'][service_name]
+    command = service['command'][1]
+
+    # Verify SLO's namespace pattern works
+    assert_in('name: stacks-1001', command, "Should create stacks-1001 namespace")
+    assert_in('stack-id: "1001"', command, "Should have stack-id label")
+    print("  [PASS] test_create_namespace_real_world_slo")
+
+# ============================================================================
 # Run All Tests
 # ============================================================================
 
@@ -276,6 +472,18 @@ def run_tests():
     test_register_webhook_default_namespace()
     test_register_webhook_empty_list()
     test_register_webhook_both_services()
+
+    print("\n=== create_namespace Tests ===")
+    test_create_namespace_basic()
+    test_create_namespace_service_config()
+    test_create_namespace_yaml_content()
+    test_create_namespace_with_labels()
+    test_create_namespace_multiple()
+    test_create_namespace_empty_list()
+    test_create_namespace_unique_service_names()
+    test_create_namespace_deterministic_hash()
+    test_create_namespace_kubeconfig_patching()
+    test_create_namespace_real_world_slo()
 
     print("\n" + "=" * 50)
     print("All tests passed!")
