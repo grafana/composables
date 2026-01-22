@@ -1,0 +1,45 @@
+# Mimir Tilt Extension
+# Provides Prometheus-compatible metrics storage.
+#
+# Exports:
+#   cc_export()       - Returns plugin struct for compose_composer
+#   get_wire_when()   - Conditional wiring rules (auto-register datasource in Grafana)
+
+load('ext://compose_composer', 'cc_create', 'cc_generate_master_compose', 'cc_docker_compose', 'cc_parse_cli_plugins')
+
+def cc_export():
+    """Returns the plugin struct for compose_composer."""
+    return cc_create(
+        'mimir',
+        os.path.dirname(__file__) + '/mimir.yaml',
+        labels=['observability'],
+    )
+
+def get_wire_when():
+    """
+    Declare conditional wiring rules.
+
+    - When Grafana is present, automatically register Mimir as a datasource.
+    - When Prometheus is present, configure remote_write to send metrics to Mimir.
+
+    This follows the symmetric pattern - any project using Mimir with Grafana/Prometheus
+    gets the integrations configured automatically.
+    """
+    return {
+        'grafana': {
+            'services': {
+                'grafana': {
+                    'depends_on': ['mimir'],
+                    'volumes': [
+                        os.path.dirname(__file__) + '/mimir-datasource.yaml:/etc/grafana/provisioning/datasources/mimir.yaml:ro',
+                    ],
+                },
+            },
+        },
+        'prometheus': {
+            # This marker will be processed by prometheus.process_accumulated_modifications()
+            '_prometheus_remote_write': [
+                {'url': 'http://mimir:9009/api/v1/push', 'name': 'mimir'},
+            ],
+        },
+    }

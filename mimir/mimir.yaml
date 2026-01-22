@@ -1,0 +1,17 @@
+services:
+  mimir:
+    image: grafana/mimir:2.4.0
+    ports:
+      - '${MIMIR_PORT:-9009}:9009'
+    volumes:
+      - mimir-data:/tmp/mimir
+      - ./mimir-config.yaml:/etc/mimir/mimir-config.yaml:ro
+    command: ['--config.file=/etc/mimir/mimir-config.yaml']
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -q --spider http://localhost:9009/ready || exit 1']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  mimir-data:
