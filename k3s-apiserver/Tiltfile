@@ -604,6 +604,7 @@ def get_wire_when():
                     'environment': {
                         # Enable Kubernetes aggregator and API server features
                         # These require the proxy client certificates mounted by grafana's wire_when
+                        # NOTE: compose_composer will concatenate this with existing toggles
                         'GF_FEATURE_TOGGLES_ENABLE': 'kubernetesAggregator,grafanaAPIServerEnsureKubectlAccess',
                     },
                 },
