@@ -12,7 +12,9 @@
 #   create_namespace()           - Generate compose_overrides to create Kubernetes namespaces
 #   copy_kubeconfig_local()      - Create local_resource to copy kubeconfig to local path
 
-load('ext://compose_composer', 'cc_create', 'cc_generate_master_compose', 'cc_docker_compose', 'cc_parse_cli_plugins')
+load('ext://compose_composer', 'cc_init')
+
+cc = cc_init('k3s-apiserver')
 
 def cc_export():
     """Returns the plugin struct for compose_composer.
@@ -20,7 +22,7 @@ def cc_export():
     This function is only called when loaded as an extension via cc_import().
     cc_create is injected by compose_composer's load_dynamic before this is called.
     """
-    return cc_create(
+    return cc.create(
         'k3s-apiserver',
         os.path.dirname(__file__) + '/k3s-apiserver-generic.yaml',
         labels=['k8s'],

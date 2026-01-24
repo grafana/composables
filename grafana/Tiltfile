@@ -10,7 +10,9 @@
 #   register_dashboards()          - Register dashboards from provisioning directory
 #   configure_data_volume()        - Configure Grafana data volume persistence
 
-load('ext://compose_composer', 'cc_import', 'cc_create', 'cc_generate_master_compose', 'cc_docker_compose', 'cc_parse_cli_plugins', 'cc_get_active_profiles')
+load('ext://compose_composer', 'cc_init')
+
+cc = cc_init('grafana')
 
 def provision_plugins(plugin_paths=[]):
     """
@@ -183,8 +185,8 @@ def register_plugin(plugin_specs):
         fail("plugin_specs must be a list of dicts, got: " + str(type(plugin_specs)))
 
     # Get active profiles from compose_composer
-    # cc_get_active_profiles is loaded at module top, so it's always available
-    active_profiles = cc_get_active_profiles()
+    # cc.get_active_profiles is available from the cc_init() struct
+    active_profiles = cc.get_active_profiles()
 
     # Filter plugin specs by profile
     filtered_specs = []
@@ -522,7 +524,7 @@ def register_dashboards(dashboards_path):
 
 def cc_export():
     """Returns the plugin struct for compose_composer."""
-    return cc_create(
+    return cc.create(
         'grafana',
         os.path.dirname(__file__) + '/grafana.yaml',
         labels=['app'],

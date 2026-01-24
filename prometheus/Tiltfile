@@ -8,7 +8,9 @@
 #   register_scrape_config()            - Declare scrape configs
 #   process_accumulated_modifications() - Callback invoked by compose_composer
 
-load('ext://compose_composer', 'cc_create', 'cc_generate_master_compose', 'cc_docker_compose', 'cc_parse_cli_plugins')
+load('ext://compose_composer', 'cc_init')
+
+cc = cc_init('prometheus')
 
 def register_remote_write(remote_write_specs):
     """
@@ -190,7 +192,7 @@ def process_accumulated_modifications(all_modifications, orchestrator_dir):
 
 def cc_export():
     """Returns the plugin struct for compose_composer."""
-    return cc_create(
+    return cc.create(
         'prometheus',
         os.path.dirname(__file__) + '/prometheus.yaml',
         labels=['observability'],

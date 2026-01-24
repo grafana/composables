@@ -4,11 +4,13 @@
 # Exports:
 #   cc_export()    - Returns plugin struct for compose_composer
 
-load('ext://compose_composer', 'cc_create', 'cc_generate_master_compose', 'cc_docker_compose', 'cc_parse_cli_plugins')
+load('ext://compose_composer', 'cc_init')
+
+cc = cc_init('nats')
 
 def cc_export():
     """Returns the plugin struct for compose_composer."""
-    return cc_create(
+    return cc.create(
         'nats',
         os.path.dirname(__file__) + '/nats.yaml',
         labels=['infra'],

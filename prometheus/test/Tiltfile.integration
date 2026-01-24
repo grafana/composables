@@ -7,14 +7,16 @@ if __file__ == config.main_path:
     v1alpha1.extension_repo(name='grafana-tilt-extensions', url=COMPOSE_COMPOSER_URL, ref=COMPOSE_COMPOSER_REF)
     v1alpha1.extension(name='compose_composer', repo_name='grafana-tilt-extensions', repo_path='compose_composer')
 
-load('ext://compose_composer', 'cc_import', 'cc_create', 'cc_generate_master_compose', 'cc_docker_compose', 'cc_parse_cli_plugins')
+load('ext://compose_composer', 'cc_init')
 
 allow_k8s_contexts(k8s_context())
 
-prometheus = cc_import(name='prometheus', url=COMPOSABLES_URL, labels=['observability'])
+cc = cc_init('prometheus-test', composables_url=COMPOSABLES_URL)
+
+prometheus = cc.use('prometheus', labels=['observability'])
 
 def cc_export():
-    return cc_create(
+    return cc.create(
         'prometheus',
         os.path.dirname(__file__) + '/docker-compose.yaml',
         prometheus,
@@ -28,9 +30,8 @@ def cc_export():
 # If loaded directly via 'tilt up', run through compose_composer pipeline
 if __file__ == config.main_path:
     # Generate master compose - this handles all the compose_composer logic
-    master = cc_generate_master_compose(
+    master = cc.generate_master_compose(
         cc_export(),
-        cc_parse_cli_plugins(os.path.dirname(__file__)),
-        staging_dir=os.path.dirname(__file__) + '/.cc',
+        cc.parse_cli_plugins(os.path.dirname(__file__)),
     )
-    cc_docker_compose(master, wait=True)
+    cc.docker_compose(master, wait=True)

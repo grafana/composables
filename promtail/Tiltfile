@@ -5,7 +5,9 @@
 #   cc_export()    - Returns plugin struct for compose_composer
 #   get_wire_when()    - Auto-wire to Loki when loaded together
 
-load('ext://compose_composer', 'cc_create', 'cc_generate_master_compose', 'cc_docker_compose', 'cc_parse_cli_plugins')
+load('ext://compose_composer', 'cc_init')
+
+cc = cc_init('promtail')
 
 def detect_container_runtime():
     """Detect if running Docker or Podman and return appropriate volume mounts."""
@@ -29,7 +31,7 @@ def cc_export():
     """Returns the plugin struct for compose_composer."""
     volumes = detect_container_runtime()
 
-    return cc_create(
+    return cc.create(
         'promtail',
         os.path.dirname(__file__) + '/promtail.yaml',
         labels=['observability'],
@@ -56,4 +58,3 @@ def get_wire_when():
             },
         },
     }
-
