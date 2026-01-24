@@ -30,7 +30,6 @@ def register_remote_write(remote_write_specs):
         prometheus = cc_import(
             name='prometheus',
             url='...',
-            imports=['register_remote_write'],
         )
 
         def cc_export():
@@ -67,7 +66,6 @@ def register_scrape_config(scrape_configs):
         prometheus = cc_import(
             name='prometheus',
             url='...',
-            imports=['register_scrape_config'],
         )
 
         def cc_export():

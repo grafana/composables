@@ -24,7 +24,7 @@ allow_k8s_contexts(k8s_context())
 # Load dependencies to trigger wire-when rules
 k3s_apiserver = cc_import(name='k3s-apiserver', url=COMPOSABLES_URL, labels=['k8s'])
 mysql = cc_import(name='mysql', url=COMPOSABLES_URL, labels=['infra'])
-grafana = cc_import(name='grafana', url=COMPOSABLES_URL, imports=['register_aggregator_config'], labels=['grafana'])
+grafana = cc_import(name='grafana', url=COMPOSABLES_URL, labels=['grafana'])
 
 def cc_export():
     """

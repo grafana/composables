@@ -46,7 +46,6 @@ def register_crds(crd_paths):
         k3s = dependency(
             name='k3s-apiserver',
             url='...',
-            imports=['register_crds'],
         )
         crd_mod = k3s.register_crds(crd_paths=[
             os.path.dirname(__file__) + '/definitions',
@@ -89,7 +88,6 @@ def register_webhook(operator_specs):
         k3s = cc_import(
             name='k3s-apiserver',
             url='...',
-            imports=['register_crds', 'register_webhook'],
         )
         def cc_export():
             return cc_create(
@@ -191,7 +189,6 @@ def register_admission_config(admission_yaml_path, resource_name_suffix=''):
         k3s = cc_import(
             name='k3s-apiserver',
             url='...',
-            imports=['register_admission_config'],
         )
 
         def cc_export():
@@ -306,7 +303,6 @@ def register_roles(roles_yaml_path, resource_name_suffix='roles'):
         k3s = cc_import(
             name='k3s-apiserver',
             url='...',
-            imports=['register_roles'],
         )
 
         def cc_export():
@@ -389,7 +385,6 @@ def create_namespace(namespace_specs):
         k3s = cc_import(
             name='k3s-apiserver',
             url='...',
-            imports=['create_namespace'],
         )
 
         def cc_export():
@@ -494,7 +489,6 @@ def enable_in_cluster_config(service_names):
         k3s = cc_import(
             name='k3s-apiserver',
             url='...',
-            imports=['enable_in_cluster_config'],
         )
 
         def cc_export():
@@ -546,7 +540,6 @@ def copy_kubeconfig_local(dest_path, resource_name='kubeconfig-copy'):
         k3s = cc_import(
             name='k3s-apiserver',
             url='...',
-            imports=['copy_kubeconfig_local'],
         )
 
         if __file__ == config.main_path:

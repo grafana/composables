@@ -329,7 +329,6 @@ def register_aggregator_config(api_groups):
         grafana = cc_import(
             name='grafana',
             url='...',
-            imports=['register_aggregator_config'],
         )
 
         def cc_export():
