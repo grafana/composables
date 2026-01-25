@@ -557,7 +557,7 @@ def copy_kubeconfig_local(cc, dest_path, resource_name='kubeconfig-copy'):
                 dest_path=os.path.dirname(__file__) + '/generated-kubeconfig.yaml'
             )
     """
-    source_path = get_kubeconfig_path()
+    source_path = get_kubeconfig_path(cc)
 
     local_resource(
         resource_name,
