@@ -2,23 +2,20 @@
 # Provides Grafana for development.
 #
 # Exports:
-#   cc_export()                - Returns plugin struct for compose_composer
-#   get_wire_when()                - Conditional wiring rules
-#   provision_plugins()            - Helper to mount plugin provisioning directories
-#   register_aggregator_config()   - Configure API server aggregation for AppPlatform
-#   register_plugin()              - Helper to register Grafana plugins
-#   register_dashboards()          - Register dashboards from provisioning directory
-#   configure_data_volume()        - Configure Grafana data volume persistence
+#   cc_export(cc)                  - Returns plugin struct for compose_composer
+#   get_wire_when(cc)              - Conditional wiring rules
+#   provision_plugins(cc, ...)     - Helper to mount plugin provisioning directories
+#   register_aggregator_config(cc, ...) - Configure API server aggregation for AppPlatform
+#   register_plugin(cc, ...)       - Helper to register Grafana plugins
+#   register_dashboards(cc, ...)   - Register dashboards from provisioning directory
+#   configure_data_volume(cc, ...) - Configure Grafana data volume persistence
 
-load('ext://compose_composer', 'cc_init')
-
-cc = cc_init('grafana')
-
-def provision_plugins(plugin_paths=[]):
+def provision_plugins(cc, plugin_paths=[]):
     """
     Helper function to mount plugin provisioning files into Grafana.
 
     Args:
+        cc: Orchestrator's cc struct (injected by compose_composer)
         plugin_paths: List of directory paths containing plugin provisioning files.
                      Each path should contain YAML files for plugin configuration.
                      Note: Grafana reads files directly from /etc/grafana/provisioning/plugins/
@@ -117,7 +114,7 @@ def _should_register_plugin(plugin_spec, active_profiles):
 
     return False
 
-def register_plugin(plugin_specs):
+def register_plugin(cc, plugin_specs):
     """
     Helper function to register Grafana plugins.
 
@@ -125,6 +122,7 @@ def register_plugin(plugin_specs):
     Grafana to load unsigned plugins.
 
     Args:
+        cc: Orchestrator's cc struct (injected by compose_composer)
         plugin_specs: List of plugin specification dicts, each with:
             - name: str (required)
                 Plugin ID (e.g., 'grafana-labels-app')
@@ -310,7 +308,7 @@ def register_plugin(plugin_specs):
 
     return result
 
-def register_aggregator_config(api_groups):
+def register_aggregator_config(cc, api_groups):
     """
     Configure API server aggregation for Grafana AppPlatform.
 
@@ -318,6 +316,7 @@ def register_aggregator_config(api_groups):
     by creating a configuration file that lists the API groups to expose.
 
     Args:
+        cc: Orchestrator's cc struct (injected by compose_composer)
         api_groups: List of dicts, each with:
             - group: str     - API group (e.g., 'servicemodel.ext.grafana.com')
             - version: str   - API version (e.g., 'v1alpha1')
@@ -400,7 +399,7 @@ cat /certs/aggregator-config.yaml
         },
     }
 
-def configure_data_volume(enabled=True):
+def configure_data_volume(cc, enabled=True):
     """
     Configure Grafana's data volume persistence mode.
 
@@ -408,6 +407,7 @@ def configure_data_volume(enabled=True):
     This helper allows you to switch to ephemeral tmpfs storage for testing.
 
     Args:
+        cc: Orchestrator's cc struct (injected by compose_composer)
         enabled: bool (default: True)
             Whether to use persistent storage. If False, uses tmpfs for
             ephemeral in-memory storage (data lost on container restart).
@@ -448,7 +448,7 @@ def configure_data_volume(enabled=True):
     # Enabled - return empty dict (default volume from grafana.yaml is used)
     return {}
 
-def register_dashboards(dashboards_path):
+def register_dashboards(cc, dashboards_path):
     """
     Register dashboards from a provisioning directory.
 
@@ -460,6 +460,7 @@ def register_dashboards(dashboards_path):
     allowing Grafana to discover all dashboard providers and their dashboard files.
 
     Args:
+        cc: Orchestrator's cc struct (injected by compose_composer)
         dashboards_path: str (required)
             Absolute path to the dashboards provisioning directory.
             Should contain:
@@ -522,7 +523,7 @@ def register_dashboards(dashboards_path):
         },
     }
 
-def cc_export():
+def cc_export(cc):
     """Returns the plugin struct for compose_composer."""
     return cc.create(
         'grafana',
@@ -532,7 +533,7 @@ def cc_export():
 
 # Declarative Wiring - Replaces callback-based approach
 
-def get_wire_when():
+def get_wire_when(cc):
     """
     Declare conditional wiring rules.
     

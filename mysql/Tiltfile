@@ -2,18 +2,14 @@
 # Provides MySQL database for development.
 #
 # Exports:
-#   cc_export()                         - Returns plugin struct for compose_composer
-#   create_databases()                      - Helper to create multiple databases (legacy, still supported)
-#   require_database()                      - Declare database requirement (recommended for new code)
-#   process_accumulated_modifications()     - Callback invoked by compose_composer
+#   cc_export(cc)                       - Returns plugin struct for compose_composer
+#   create_databases(cc, ...)           - Helper to create multiple databases (legacy, still supported)
+#   require_database(cc, ...)           - Declare database requirement (recommended for new code)
+#   process_accumulated_modifications() - Callback invoked by compose_composer (not auto-bound)
 
-load('ext://compose_composer', 'cc_init')
-
-cc = cc_init('mysql')
-
-def create_databases(database_names=[], orchestrator_dir=None):
+def _create_databases_impl(database_names=[], orchestrator_dir=None):
     """
-    Helper function to create multiple databases in MySQL.
+    Internal implementation of create_databases.
 
     Args:
         database_names: List of database names to create (e.g., ['grafana', 'oncall', 'incident'])
@@ -21,9 +17,6 @@ def create_databases(database_names=[], orchestrator_dir=None):
 
     Returns:
         Dict with compose_overrides to create the databases
-
-    Example:
-        mysql.create_databases(['grafana', 'oncall', 'incident'], os.path.dirname(__file__))
     """
     if not database_names:
         return {}
@@ -60,7 +53,24 @@ def create_databases(database_names=[], orchestrator_dir=None):
         },
     }
 
-def require_database(database_name):
+def create_databases(cc, database_names=[], orchestrator_dir=None):
+    """
+    Helper function to create multiple databases in MySQL.
+
+    Args:
+        cc: Orchestrator's cc struct (injected by compose_composer)
+        database_names: List of database names to create (e.g., ['grafana', 'oncall', 'incident'])
+        orchestrator_dir: Directory where orchestrator is running (for generating init script)
+
+    Returns:
+        Dict with compose_overrides to create the databases
+
+    Example:
+        mysql.create_databases(['grafana', 'oncall', 'incident'], os.path.dirname(__file__))
+    """
+    return _create_databases_impl(database_names, orchestrator_dir)
+
+def require_database(cc, database_name):
     """
     Declare that this composable requires a database to be created.
 
@@ -69,6 +79,7 @@ def require_database(database_name):
     create_databases() once with the full list.
 
     Args:
+        cc: Orchestrator's cc struct (injected by compose_composer)
         database_name: Name of database to create (e.g., 'oncall_local_dev')
 
     Returns:
@@ -96,6 +107,7 @@ def process_accumulated_modifications(all_modifications, orchestrator_dir):
 
     This helper is called by compose_composer AFTER collecting all modifications
     from root + CLI plugins. MySQL handles its own requirement processing.
+    NOT auto-bound - called directly by compose_composer.
 
     Args:
         all_modifications: List of all modification dicts from all plugins
@@ -126,15 +138,15 @@ def process_accumulated_modifications(all_modifications, orchestrator_dir):
 
     print("[mysql] Auto-provisioning databases: {}".format(', '.join(unique_databases)))
 
-    # Delegate to create_databases for SQL generation and volume mounting
-    mod = create_databases(unique_databases, orchestrator_dir)
+    # Delegate to internal implementation (not through wrapper)
+    mod = _create_databases_impl(unique_databases, orchestrator_dir)
 
     # Add _target so compose_composer knows this modifies the mysql dependency
     mod['_target'] = 'mysql'
 
     return mod
 
-def cc_export():
+def cc_export(cc):
     """Returns the plugin struct for compose_composer."""
     return cc.create(
         'mysql',

@@ -94,7 +94,7 @@ def test_tiltfile_has_cc_export():
     """Test Tiltfile exports cc_export function."""
     tiltfile_path = os.path.dirname(__file__) + '/../Tiltfile'
     content = str(read_file(tiltfile_path))
-    assert_in('def cc_export():', content, "Should define cc_export function")
+    assert_in('def cc_export(cc):', content, "Should define cc_export(cc) function")
     assert_in("'mimir'", content, "Should use 'mimir' as name")
     assert_in('mimir.yaml', content, "Should reference mimir.yaml")
     print("  [PASS] test_tiltfile_has_cc_export")
@@ -103,7 +103,7 @@ def test_tiltfile_has_get_wire_when():
     """Test Tiltfile exports get_wire_when function."""
     tiltfile_path = os.path.dirname(__file__) + '/../Tiltfile'
     content = str(read_file(tiltfile_path))
-    assert_in('def get_wire_when():', content, "Should define get_wire_when function")
+    assert_in('def get_wire_when(cc):', content, "Should define get_wire_when(cc) function")
     print("  [PASS] test_tiltfile_has_get_wire_when")
 
 def test_datasource_file_exists():

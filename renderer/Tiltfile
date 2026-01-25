@@ -2,14 +2,10 @@
 # Provides Grafana image renderer for panel snapshots and reports.
 #
 # Exports:
-#   cc_export()    - Returns plugin struct for compose_composer
-#   get_wire_when()    - Auto-configure Grafana when loaded together
+#   cc_export(cc)      - Returns plugin struct for compose_composer
+#   get_wire_when(cc)  - Auto-configure Grafana when loaded together
 
-load('ext://compose_composer', 'cc_init')
-
-cc = cc_init('renderer')
-
-def cc_export():
+def cc_export(cc):
     """Returns the plugin struct for compose_composer."""
     return cc.create(
         'renderer',
@@ -17,7 +13,7 @@ def cc_export():
         labels=['observability'],
     )
 
-def get_wire_when():
+def get_wire_when(cc):
     """
     Declarative wiring for renderer integration.
     Auto-configure Grafana to use renderer when loaded together.

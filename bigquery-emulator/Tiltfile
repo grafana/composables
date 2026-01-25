@@ -2,13 +2,9 @@
 # Provides BigQuery emulator for SQL testing.
 #
 # Exports:
-#   cc_export()    - Returns plugin struct for compose_composer
+#   cc_export(cc)  - Returns plugin struct for compose_composer
 
-load('ext://compose_composer', 'cc_init')
-
-cc = cc_init('bigquery-emulator')
-
-def cc_export():
+def cc_export(cc):
     """Returns the plugin struct for compose_composer."""
     return cc.create(
         'bigquery-emulator',

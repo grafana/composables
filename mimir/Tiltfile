@@ -2,14 +2,10 @@
 # Provides Prometheus-compatible metrics storage.
 #
 # Exports:
-#   cc_export()       - Returns plugin struct for compose_composer
-#   get_wire_when()   - Conditional wiring rules (auto-register datasource in Grafana)
+#   cc_export(cc)     - Returns plugin struct for compose_composer
+#   get_wire_when(cc) - Conditional wiring rules (auto-register datasource in Grafana)
 
-load('ext://compose_composer', 'cc_init')
-
-cc = cc_init('mimir')
-
-def cc_export():
+def cc_export(cc):
     """Returns the plugin struct for compose_composer."""
     return cc.create(
         'mimir',
@@ -17,7 +13,7 @@ def cc_export():
         labels=['observability'],
     )
 
-def get_wire_when():
+def get_wire_when(cc):
     """
     Declare conditional wiring rules.
 

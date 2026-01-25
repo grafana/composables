@@ -2,17 +2,13 @@
 # Provides Prometheus metrics collection and storage.
 #
 # Exports:
-#   cc_export()                         - Returns plugin struct for compose_composer
-#   get_wire_when()                     - Conditional wiring rules (auto-register datasource in Grafana)
-#   register_remote_write()             - Declare remote_write targets
-#   register_scrape_config()            - Declare scrape configs
-#   process_accumulated_modifications() - Callback invoked by compose_composer
+#   cc_export(cc)                       - Returns plugin struct for compose_composer
+#   get_wire_when(cc)                   - Conditional wiring rules (auto-register datasource in Grafana)
+#   register_remote_write(cc, ...)      - Declare remote_write targets
+#   register_scrape_config(cc, ...)     - Declare scrape configs
+#   process_accumulated_modifications() - Callback invoked by compose_composer (not auto-bound)
 
-load('ext://compose_composer', 'cc_init')
-
-cc = cc_init('prometheus')
-
-def register_remote_write(remote_write_specs):
+def register_remote_write(cc, remote_write_specs):
     """
     Declare remote_write targets for Prometheus.
 
@@ -21,6 +17,7 @@ def register_remote_write(remote_write_specs):
     process_accumulated_modifications() to generate the final prometheus.yml.
 
     Args:
+        cc: Orchestrator's cc struct (injected by compose_composer)
         remote_write_specs: List of remote_write config dicts, each with:
             - url: str (required) - Remote write endpoint
             - name: str (optional) - Name for logging/identification
@@ -51,7 +48,7 @@ def register_remote_write(remote_write_specs):
         '_target': 'prometheus',
     }
 
-def register_scrape_config(scrape_configs):
+def register_scrape_config(cc, scrape_configs):
     """
     Declare scrape_configs for Prometheus.
 
@@ -59,6 +56,7 @@ def register_scrape_config(scrape_configs):
     and generates a combined prometheus.yml via process_accumulated_modifications().
 
     Args:
+        cc: Orchestrator's cc struct (injected by compose_composer)
         scrape_configs: List of scrape_config dicts matching Prometheus format
 
     Returns:
@@ -190,7 +188,7 @@ def process_accumulated_modifications(all_modifications, orchestrator_dir):
         '_target': 'prometheus',
     }
 
-def cc_export():
+def cc_export(cc):
     """Returns the plugin struct for compose_composer."""
     return cc.create(
         'prometheus',
@@ -198,7 +196,7 @@ def cc_export():
         labels=['observability'],
     )
 
-def get_wire_when():
+def get_wire_when(cc):
     """
     Declare conditional wiring rules.
 

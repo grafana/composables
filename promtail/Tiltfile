@@ -2,14 +2,10 @@
 # Provides Promtail log collector that ships logs to Loki.
 #
 # Exports:
-#   cc_export()    - Returns plugin struct for compose_composer
-#   get_wire_when()    - Auto-wire to Loki when loaded together
+#   cc_export(cc)      - Returns plugin struct for compose_composer
+#   get_wire_when(cc)  - Auto-wire to Loki when loaded together
 
-load('ext://compose_composer', 'cc_init')
-
-cc = cc_init('promtail')
-
-def detect_container_runtime():
+def _detect_container_runtime():
     """Detect if running Docker or Podman and return appropriate volume mounts."""
     # Check if docker command is actually podman
     result = str(local('docker --version 2>/dev/null || echo "unknown"', quiet=True))
@@ -27,9 +23,9 @@ def detect_container_runtime():
             '/var/run/docker.sock:/var/run/docker.sock',
         ]
 
-def cc_export():
+def cc_export(cc):
     """Returns the plugin struct for compose_composer."""
-    volumes = detect_container_runtime()
+    volumes = _detect_container_runtime()
 
     return cc.create(
         'promtail',
@@ -44,7 +40,7 @@ def cc_export():
         },
     )
 
-def get_wire_when():
+def get_wire_when(cc):
     """
     Declarative wiring for promtail integration.
     Automatically configure promtail to depend on loki when both are loaded.
