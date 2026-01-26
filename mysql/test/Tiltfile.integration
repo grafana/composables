@@ -11,15 +11,11 @@ load('ext://compose_composer', 'cc_init')
 
 allow_k8s_contexts(k8s_context())
 
-cc = cc_init('mysql-test', composables_url=COMPOSABLES_URL)
-
-mysql = cc.use('mysql', labels=['infra'])
-
-def cc_export():
+def cc_export(cc):
+    mysql = cc.use('mysql', labels=['infra'])
     return cc.create(
         'mysql',
         os.path.dirname(__file__) + '/docker-compose.yaml',
-        mysql,
         labels=['infra']
     )
 
@@ -29,9 +25,9 @@ def cc_export():
 
 # If loaded directly via 'tilt up', run through compose_composer pipeline
 if __file__ == config.main_path:
-    # Generate master compose - this handles all the compose_composer logic
+    cc = cc_init('mysql-test', composables_url=COMPOSABLES_URL)
     master = cc.generate_master_compose(
-        cc_export(),
-        cc.parse_cli_plugins(os.path.dirname(__file__)),
+        cc_export(cc),
+        cc.parse_cli_plugins(),
     )
     cc.docker_compose(master, wait=True)

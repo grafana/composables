@@ -16,17 +16,12 @@ load('ext://compose_composer', 'cc_init')
 
 allow_k8s_contexts(k8s_context())
 
-cc = cc_init('mimir-test', composables_url=COMPOSABLES_URL)
-
-# Import mimir as a dependency
-mimir = cc.use('mimir', labels=['observability'])
-
-def cc_export():
+def cc_export(cc):
     """Test orchestrator that uses mimir composable."""
+    mimir = cc.use('mimir', labels=['observability'])
     return cc.create(
         'mimir-test',
         os.path.dirname(__file__) + '/docker-compose.yaml',
-        mimir,
         labels=['test']
     )
 
@@ -35,10 +30,10 @@ def cc_export():
 # ============================================================================
 
 if __file__ == config.main_path:
-    # Generate master compose - this handles all the compose_composer logic
+    cc = cc_init('mimir-test', composables_url=COMPOSABLES_URL)
     master = cc.generate_master_compose(
-        cc_export(),
-        cc.parse_cli_plugins(os.path.dirname(__file__)),
+        cc_export(cc),
+        cc.parse_cli_plugins(),
     )
     cc.docker_compose(master, wait=True)
 

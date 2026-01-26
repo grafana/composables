@@ -21,23 +21,18 @@ load('ext://compose_composer', 'cc_init')
 
 allow_k8s_contexts(k8s_context())
 
-cc = cc_init('grafana-integration-test', composables_url=COMPOSABLES_URL)
-
-# Load dependencies to trigger wire-when rules
-k3s_apiserver = cc.use('k3s-apiserver', labels=['k8s'])
-mysql = cc.use('mysql', labels=['infra'])
-grafana = cc.use('grafana', labels=['grafana'])
-
-def cc_export():
+def cc_export(cc):
     """
     Test plugin that loads grafana with dependencies to trigger wire-when rules.
     """
+    # Load dependencies to trigger wire-when rules
+    k3s_apiserver = cc.use('k3s-apiserver', labels=['k8s'])
+    mysql = cc.use('mysql', labels=['infra'])
+    grafana = cc.use('grafana', labels=['grafana'])
+
     return cc.create(
         'grafana-integration-test',
         os.path.dirname(__file__) + '/docker-compose.yaml',
-        k3s_apiserver,  # Triggers k3s-apiserver wire-when
-        mysql,          # Triggers mysql wire-when
-        grafana,        # The composable being tested
         labels=['test'],
         modifications=[
             # Test register_aggregator_config helper
@@ -58,6 +53,8 @@ def cc_export():
 
 # If loaded directly via 'tilt up', run through compose_composer pipeline
 if __file__ == config.main_path:
+    cc = cc_init('grafana-integration-test', composables_url=COMPOSABLES_URL)
+
     print("\n" + "=" * 70)
     print("Grafana Composable Integration Tests")
     print("=" * 70)
@@ -71,8 +68,8 @@ if __file__ == config.main_path:
 
     # Generate master compose - this handles all the compose_composer logic
     master = cc.generate_master_compose(
-        cc_export(),
-        cc.parse_cli_plugins(os.path.dirname(__file__)),
+        cc_export(cc),
+        cc.parse_cli_plugins(),
     )
 
     print("\n" + "=" * 70)

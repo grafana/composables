@@ -9,17 +9,13 @@ if __file__ == config.main_path:
 
 load('ext://compose_composer', 'cc_init')
 
-cc = cc_init('promtail-test', composables_url=COMPOSABLES_URL)
-
 allow_k8s_contexts(k8s_context())
 
-promtail = cc.use(name='promtail', labels=['observability'])
-
-def cc_export():
+def cc_export(cc):
+    promtail = cc.use(name='promtail', labels=['observability'])
     return cc.create(
         'promtail',
         os.path.dirname(__file__) + '/docker-compose.yaml',
-        promtail,
         labels=['observability']
     )
 
@@ -29,8 +25,9 @@ def cc_export():
 
 # If loaded directly via 'tilt up', run through compose_composer pipeline
 if __file__ == config.main_path:
+    cc = cc_init('promtail-test', composables_url=COMPOSABLES_URL)
     master = cc.generate_master_compose(
-        cc_export(),
-        cc.parse_cli_plugins(os.path.dirname(__file__)),
+        cc_export(cc),
+        cc.parse_cli_plugins(),
     )
     cc.docker_compose(master, wait=True)

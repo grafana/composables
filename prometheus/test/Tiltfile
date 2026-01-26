@@ -79,7 +79,7 @@ def test_tiltfile_has_cc_export():
     """Test Tiltfile exports cc_export function."""
     tiltfile_path = os.path.dirname(__file__) + '/../Tiltfile'
     content = str(read_file(tiltfile_path))
-    assert_in('def cc_export():', content, "Should define cc_export function")
+    assert_in('def cc_export(cc):', content, "Should define cc_export(cc) function")
     assert_in("'prometheus'", content, "Should use 'prometheus' as name")
     assert_in('prometheus.yaml', content, "Should reference prometheus.yaml")
     print("  [PASS] test_tiltfile_has_cc_export")
