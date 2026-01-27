@@ -1,0 +1,18 @@
+# InfluxDB 3 Core Composable
+#
+# Provides InfluxDB 3 time series database with Flight SQL support.
+#
+# Usage:
+#   influxdb = cc.use('influxdb', labels=['infra'])
+#
+# Ports:
+#   - 8181: HTTP API
+#   - 8082: gRPC/Flight SQL
+
+def cc_export(cc):
+    """Returns the plugin struct for compose_composer."""
+    return cc.create(
+        'influxdb',
+        os.path.dirname(__file__) + '/influxdb.yaml',
+        labels=['infra'],
+    )

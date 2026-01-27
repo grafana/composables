@@ -1,0 +1,45 @@
+# InfluxDB 3 Core - Time Series Database
+#
+# Provides InfluxDB 3 with Flight SQL support for time series data.
+# Uses the influxdb3-core image with file-based object storage.
+#
+# Ports:
+#   - 8181: HTTP API
+#   - 8082: gRPC/Flight SQL
+#
+# Volumes:
+#   - influxdb-data: Persistent data storage
+
+services:
+  influxdb:
+    image: quay.io/influxdb/influxdb3-core:latest
+    container_name: influxdb
+    ports:
+      - '8181:8181'
+      - '8082:8082'
+    volumes:
+      - influxdb-data:/var/lib/influxdb3
+    command:
+      - serve
+      - --node-id=local-dev
+      - --object-store=file
+      - --data-dir=/var/lib/influxdb3
+      - --http-bind=0.0.0.0:8181
+      - --without-auth
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -sf http://localhost:8181/health || exit 1']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2g
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+
+volumes:
+  influxdb-data:
