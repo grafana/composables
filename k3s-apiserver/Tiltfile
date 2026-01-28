@@ -3,7 +3,7 @@
 #
 # Exports:
 #   cc_export(cc)                - Returns plugin struct for compose_composer
-#   get_wire_when(cc)            - Conditional wiring rules for Grafana integration
+#   cc_wire_when(cc)            - Conditional wiring rules for Grafana integration
 #   get_kubeconfig_path(cc)      - Returns path to the kubeconfig output
 #   register_crds(cc, ...)       - Generate compose_overrides to mount CRDs into crd-loader
 #   register_webhook(cc, ...)    - Generate compose_overrides to configure webhook operators
@@ -581,7 +581,7 @@ echo "✓ Kubeconfig ready for local kubectl usage at $DEST"
         labels=['k8s'],
     )
 
-def get_wire_when(cc):
+def cc_wire_when(cc):
     """
     Declare conditional wiring rules for k3s-apiserver.
 

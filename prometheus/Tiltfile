@@ -3,7 +3,7 @@
 #
 # Exports:
 #   cc_export(cc)                       - Returns plugin struct for compose_composer
-#   get_wire_when(cc)                   - Conditional wiring rules (auto-register datasource in Grafana)
+#   cc_wire_when(cc)                   - Conditional wiring rules (auto-register datasource in Grafana)
 #   register_remote_write(cc, ...)      - Declare remote_write targets
 #   register_scrape_config(cc, ...)     - Declare scrape configs
 #   process_accumulated_modifications() - Callback invoked by compose_composer (not auto-bound)
@@ -196,7 +196,7 @@ def cc_export(cc):
         labels=['observability'],
     )
 
-def get_wire_when(cc):
+def cc_wire_when(cc):
     """
     Declare conditional wiring rules.
 

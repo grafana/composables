@@ -84,12 +84,12 @@ def test_tiltfile_has_cc_export():
     assert_in('prometheus.yaml', content, "Should reference prometheus.yaml")
     print("  [PASS] test_tiltfile_has_cc_export")
 
-def test_tiltfile_has_get_wire_when():
-    """Test Tiltfile exports get_wire_when function."""
+def test_tiltfile_has_cc_wire_when():
+    """Test Tiltfile exports cc_wire_when function."""
     tiltfile_path = os.path.dirname(__file__) + '/../Tiltfile'
     content = str(read_file(tiltfile_path))
-    assert_in('def get_wire_when(cc):', content, "Should define get_wire_when(cc) function")
-    print("  [PASS] test_tiltfile_has_get_wire_when")
+    assert_in('def cc_wire_when(cc):', content, "Should define cc_wire_when(cc) function")
+    print("  [PASS] test_tiltfile_has_cc_wire_when")
 
 # ============================================================================
 # Wire-When Tests (Grafana datasource)
@@ -115,7 +115,7 @@ def test_datasource_has_correct_config():
     print("  [PASS] test_datasource_has_correct_config")
 
 def test_wire_when_grafana_has_datasource_mount():
-    """Test get_wire_when configures Grafana datasource mount."""
+    """Test cc_wire_when configures Grafana datasource mount."""
     tiltfile_path = os.path.dirname(__file__) + '/../Tiltfile'
     content = str(read_file(tiltfile_path))
     assert_in("'grafana':", content, "Should have grafana wire_when rule")
@@ -204,7 +204,7 @@ def run_tests():
     test_tiltfile_has_cc_export()
 
     print("\n=== Wire-When Tests ===")
-    test_tiltfile_has_get_wire_when()
+    test_tiltfile_has_cc_wire_when()
     test_datasource_file_exists()
     test_datasource_has_correct_config()
     test_wire_when_grafana_has_datasource_mount()

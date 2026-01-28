@@ -3,7 +3,7 @@
 #
 # Exports:
 #   cc_export(cc)                  - Returns plugin struct for compose_composer
-#   get_wire_when(cc)              - Conditional wiring rules
+#   cc_wire_when(cc)              - Conditional wiring rules
 #   provision_plugins(cc, ...)     - Helper to mount plugin provisioning directories
 #   register_aggregator_config(cc, ...) - Configure API server aggregation for AppPlatform
 #   register_plugin(cc, ...)       - Helper to register Grafana plugins
@@ -533,7 +533,7 @@ def cc_export(cc):
 
 # Declarative Wiring - Replaces callback-based approach
 
-def get_wire_when(cc):
+def cc_wire_when(cc):
     """
     Declare conditional wiring rules.
     

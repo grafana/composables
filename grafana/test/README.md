@@ -199,7 +199,7 @@ All tests passed!
 Potential areas for expanded test coverage:
 
 1. **Multi-orchestrator config merging** - When implemented, test that multiple plugins can register API groups that get merged into a single config
-2. **get_wire_when() validation** - Verify wire-when rules produce correct compose overrides
+2. **cc_wire_when() validation** - Verify wire-when rules produce correct compose overrides
 3. **Runtime behavior tests** - Automated tests that start containers and verify runtime behavior
 4. **Performance tests** - Test behavior with large numbers of API groups or plugin paths
 5. **Error recovery tests** - Test graceful handling of malformed YAML or missing files

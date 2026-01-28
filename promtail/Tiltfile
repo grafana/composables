@@ -3,7 +3,7 @@
 #
 # Exports:
 #   cc_export(cc)      - Returns plugin struct for compose_composer
-#   get_wire_when(cc)  - Auto-wire to Loki when loaded together
+#   cc_wire_when(cc)  - Auto-wire to Loki when loaded together
 
 def _detect_container_runtime():
     """Detect if running Docker or Podman and return appropriate volume mounts."""
@@ -40,7 +40,7 @@ def cc_export(cc):
         },
     )
 
-def get_wire_when(cc):
+def cc_wire_when(cc):
     """
     Declarative wiring for promtail integration.
     Automatically configure promtail to depend on loki when both are loaded.

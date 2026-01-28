@@ -3,7 +3,7 @@
 #
 # Exports:
 #   cc_export(cc)      - Returns plugin struct for compose_composer
-#   get_wire_when(cc)  - Auto-configure Grafana when loaded together
+#   cc_wire_when(cc)  - Auto-configure Grafana when loaded together
 
 def cc_export(cc):
     """Returns the plugin struct for compose_composer."""
@@ -13,7 +13,7 @@ def cc_export(cc):
         labels=['observability'],
     )
 
-def get_wire_when(cc):
+def cc_wire_when(cc):
     """
     Declarative wiring for renderer integration.
     Auto-configure Grafana to use renderer when loaded together.
