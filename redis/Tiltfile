@@ -2,7 +2,15 @@
 # Provides Redis cache for development.
 #
 # Exports:
-#   cc_export(cc)  - Returns plugin struct for compose_composer
+#   cc_export(cc)              - Returns plugin struct for compose_composer
+#   compose_overrides(cc, ...) - Helper to override compose service settings
+
+def compose_overrides(cc, overrides):
+    if type(overrides) != 'dict':
+        fail("overrides must be a dict, got: " + str(type(overrides)))
+    result = dict(overrides)
+    result['_target'] = 'redis'
+    return result
 
 def cc_export(cc):
     """Returns the plugin struct for compose_composer."""

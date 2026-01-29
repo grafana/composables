@@ -5,6 +5,7 @@
 #   cc_export(cc)                       - Returns plugin struct for compose_composer
 #   create_databases(cc, ...)           - Helper to create multiple databases (legacy, still supported)
 #   require_database(cc, ...)           - Declare database requirement (recommended for new code)
+#   compose_overrides(cc, ...)          - Helper to override compose service settings
 #   process_accumulated_modifications() - Callback invoked by compose_composer (not auto-bound)
 
 def _create_databases_impl(database_names=[], orchestrator_dir=None):
@@ -100,6 +101,13 @@ def require_database(cc, database_name):
         '_database_requirement': database_name,
         '_target': 'mysql',  # Marker that this modifies mysql dependency
     }
+
+def compose_overrides(cc, overrides):
+    if type(overrides) != 'dict':
+        fail("overrides must be a dict, got: " + str(type(overrides)))
+    result = dict(overrides)
+    result['_target'] = 'mysql'
+    return result
 
 def process_accumulated_modifications(all_modifications, orchestrator_dir):
     """
