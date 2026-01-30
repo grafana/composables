@@ -587,7 +587,8 @@ def cc_wire_when(cc):
 
     When grafana is loaded alongside k3s-apiserver, this adds the necessary
     feature toggles to enable Grafana's Kubernetes aggregation and API server
-    features.
+    features, plus the KUBERNETES_SERVICE_HOST/PORT environment variables
+    needed for Grafana plugins using in-cluster authentication.
 
     The aggregator requires proxy client certificates which are provided by
     k3s-apiserver via the wire_when rule in grafana's Tiltfile.
@@ -608,6 +609,10 @@ def cc_wire_when(cc):
                         # These require the proxy client certificates mounted by grafana's wire_when
                         # NOTE: compose_composer will concatenate this with existing toggles
                         'GF_FEATURE_TOGGLES_ENABLE': 'kubernetesAggregator,grafanaAPIServerEnsureKubectlAccess',
+                        # Provide Kubernetes service discovery for plugins using in-cluster config
+                        # (e.g., plugins with kubeconfig: cluster in their provisioning)
+                        'KUBERNETES_SERVICE_HOST': 'k3s-apiserver',
+                        'KUBERNETES_SERVICE_PORT': '6443',
                     },
                 },
             },
