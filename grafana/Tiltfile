@@ -315,6 +315,9 @@ def register_aggregator_config(cc, api_groups):
     This helper enables Grafana to aggregate external Kubernetes API servers
     by creating a configuration file that lists the API groups to expose.
 
+    Multiple plugins can call this helper - API groups are accumulated via the
+    API_GROUPS environment variable and merged by compose_composer.
+
     Args:
         cc: Orchestrator's cc struct (injected by compose_composer)
         api_groups: List of dicts, each with:
@@ -355,8 +358,10 @@ def register_aggregator_config(cc, api_groups):
     if not api_groups:
         fail("api_groups cannot be empty - provide at least one API group")
 
-    # Build YAML content from api_groups
-    yaml_lines = []
+    # Build API_GROUPS env var entries in format: group|version|host|port
+    # Multiple calls will be comma-concatenated by compose_composer's _deep_merge
+    # (API_GROUPS is in _CONCAT_ENV_VARS list)
+    api_groups_entries = []
     for group_spec in api_groups:
         if type(group_spec) != 'dict':
             fail("Each api_group must be a dict, got: " + str(type(group_spec)))
@@ -368,14 +373,13 @@ def register_aggregator_config(cc, api_groups):
         host = group_spec.get('host', 'k3s-apiserver')
         port = group_spec.get('port', 6443)
 
-        yaml_lines.append("- group: " + group_spec['group'])
-        yaml_lines.append("  version: " + group_spec['version'])
-        yaml_lines.append("  host: " + host)
-        yaml_lines.append("  port: " + str(port))
+        # Use | as field separator (safe for hostnames and group names)
+        api_groups_entries.append(group_spec['group'] + '|' + group_spec['version'] + '|' + host + '|' + str(port))
 
-    yaml_content = "\n".join(yaml_lines)
+    api_groups_value = ','.join(api_groups_entries)
 
-    # Return compose_overrides to create/customize the aggregator-config service
+    # Return compose_overrides with env var approach
+    # The script parses API_GROUPS env var and generates the YAML
     return {
         'services': {
             'aggregator-config': {
@@ -383,15 +387,33 @@ def register_aggregator_config(cc, api_groups):
                 'entrypoint': ['/bin/sh'],
                 'command': [
                     '-c',
+                    # Note: $$ escapes to $ in docker-compose so variables are evaluated at runtime
                     '''
-echo 'Creating aggregator config...'
-cat << 'EOF' > /certs/aggregator-config.yaml
-%s
-EOF
+echo 'Creating aggregator config from API_GROUPS env var...'
+echo "API_GROUPS: $$API_GROUPS"
+
+# Generate YAML from comma-separated API_GROUPS entries
+# Format: group|version|host|port,group|version|host|port,...
+> /certs/aggregator-config.yaml
+IFS=','
+for entry in $$API_GROUPS; do
+    group=$$(echo "$$entry" | cut -d'|' -f1)
+    version=$$(echo "$$entry" | cut -d'|' -f2)
+    host=$$(echo "$$entry" | cut -d'|' -f3)
+    port=$$(echo "$$entry" | cut -d'|' -f4)
+    echo "- group: $$group" >> /certs/aggregator-config.yaml
+    echo "  version: $$version" >> /certs/aggregator-config.yaml
+    echo "  host: $$host" >> /certs/aggregator-config.yaml
+    echo "  port: $$port" >> /certs/aggregator-config.yaml
+done
+
 echo 'Aggregator config created successfully'
 cat /certs/aggregator-config.yaml
-                    ''' % yaml_content,
+                    ''',
                 ],
+                'environment': {
+                    'API_GROUPS': api_groups_value,
+                },
                 'depends_on': ['k3s-apiserver'],
                 'volumes': ['k3s-certs:/certs'],
                 'restart': 'no',
