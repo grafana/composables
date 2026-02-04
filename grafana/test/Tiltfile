@@ -41,10 +41,11 @@ def provision_plugins(plugin_paths=[]):
 
 def register_aggregator_config(api_groups):
     """
-    Configure API server aggregation for Grafana AppPlatform.
+    Declare API groups for Grafana AppPlatform aggregation.
 
-    This helper enables Grafana to aggregate external Kubernetes API servers
-    by creating a configuration file that lists the API groups to expose.
+    This helper registers API groups that should be aggregated by Grafana.
+    Multiple composables can call this function, and all api_groups will be
+    accumulated and written to a single configuration file.
 
     Args:
         api_groups: List of dicts, each with:
@@ -54,7 +55,8 @@ def register_aggregator_config(api_groups):
             - port: int      - API server port (default: 6443)
 
     Returns:
-        Dict with compose_overrides structure to customize the aggregator-config service
+        Dict with _aggregator_api_groups marker for compose_composer to process.
+        The actual aggregator-config service is created by process_accumulated_modifications().
 
     Example:
         grafana = cc_import(
@@ -85,8 +87,7 @@ def register_aggregator_config(api_groups):
     if not api_groups:
         fail("api_groups cannot be empty - provide at least one API group")
 
-    # Build YAML content from api_groups
-    yaml_lines = []
+    # Validate api_groups structure
     for group_spec in api_groups:
         if type(group_spec) != 'dict':
             fail("Each api_group must be a dict, got: " + str(type(group_spec)))
@@ -94,7 +95,19 @@ def register_aggregator_config(api_groups):
         if 'group' not in group_spec or 'version' not in group_spec:
             fail("Each api_group must have 'group' and 'version' fields")
 
-        # Set defaults
+    # Return a marker that will be processed by process_accumulated_modifications()
+    return {
+        '_aggregator_api_groups': api_groups,
+        '_target': 'grafana',
+    }
+
+
+def _build_aggregator_config_service(all_api_groups):
+    """
+    Internal: Build the aggregator-config service with all accumulated api_groups.
+    """
+    yaml_lines = []
+    for group_spec in all_api_groups:
         host = group_spec.get('host', 'k3s-apiserver')
         port = group_spec.get('port', 6443)
 
@@ -103,12 +116,14 @@ def register_aggregator_config(api_groups):
         yaml_lines.append("  host: " + host)
         yaml_lines.append("  port: " + str(port))
 
-    yaml_content = "\\n".join(yaml_lines)
+    yaml_content = "\n".join(yaml_lines)
 
-    # Return compose_overrides to customize the aggregator-config service
+    # Also add depends_on from grafana to aggregator-config so grafana waits for the config file
     return {
         'services': {
             'aggregator-config': {
+                'image': 'alpine:latest',
+                'entrypoint': ['/bin/sh'],
                 'command': [
                     '-c',
                     '''
@@ -120,9 +135,40 @@ echo 'Aggregator config created successfully'
 cat /certs/aggregator-config.yaml
                     ''' % yaml_content,
                 ],
+                'depends_on': ['k3s-apiserver'],
+                'volumes': ['k3s-certs:/certs'],
+                'restart': 'no',
+            },
+            'grafana': {
+                'depends_on': ['aggregator-config'],
             },
         },
     }
+
+
+def process_accumulated_modifications(all_modifications, orchestrator_dir):
+    """
+    Extract aggregator API group requirements from all modifications and generate service.
+    """
+    all_api_groups = []
+    seen_groups = {}
+
+    for mod in all_modifications:
+        if type(mod) == 'dict' and '_aggregator_api_groups' in mod:
+            api_groups = mod['_aggregator_api_groups']
+            if type(api_groups) == 'list':
+                for group_spec in api_groups:
+                    group_name = group_spec.get('group', '')
+                    if group_name and group_name not in seen_groups:
+                        seen_groups[group_name] = True
+                        all_api_groups.append(group_spec)
+
+    if not all_api_groups:
+        return {}
+
+    mod = _build_aggregator_config_service(all_api_groups)
+    mod['_target'] = 'grafana'
+    return mod
 
 # ============================================================================
 # Test Helpers
@@ -210,8 +256,8 @@ def test_provision_plugins_unique_mount_points():
 # register_aggregator_config Tests
 # ============================================================================
 
-def test_register_aggregator_config_single_group():
-    """Test register_aggregator_config with single API group."""
+def test_register_aggregator_config_returns_marker():
+    """Test register_aggregator_config returns a marker dict."""
     result = register_aggregator_config(api_groups=[
         {
             'group': 'servicemodel.ext.grafana.com',
@@ -220,83 +266,171 @@ def test_register_aggregator_config_single_group():
             'port': 6443,
         }
     ])
-    assert_true('services' in result, "Result should have services key")
-    assert_true('aggregator-config' in result['services'], "Should target aggregator-config service")
-    assert_true('command' in result['services']['aggregator-config'], "Should have command")
-    print("  [PASS] test_register_aggregator_config_single_group")
+    assert_true('_aggregator_api_groups' in result, "Result should have _aggregator_api_groups marker")
+    assert_true('_target' in result, "Result should have _target field")
+    assert_equals(result['_target'], 'grafana', "Target should be grafana")
+    assert_equals(len(result['_aggregator_api_groups']), 1, "Should have 1 api_group")
+    print("  [PASS] test_register_aggregator_config_returns_marker")
 
-def test_register_aggregator_config_yaml_format():
-    """Test register_aggregator_config generates correct YAML format."""
-    result = register_aggregator_config(api_groups=[
+def test_register_aggregator_config_preserves_api_groups():
+    """Test register_aggregator_config preserves api_groups in marker."""
+    api_groups = [
         {
             'group': 'test.ext.grafana.com',
             'version': 'v1',
             'host': 'localhost',
             'port': 8080,
         }
-    ])
+    ]
+    result = register_aggregator_config(api_groups=api_groups)
+    # Verify api_groups are preserved in the marker
+    marker_groups = result['_aggregator_api_groups']
+    assert_equals(marker_groups[0]['group'], 'test.ext.grafana.com', "Should preserve group")
+    assert_equals(marker_groups[0]['version'], 'v1', "Should preserve version")
+    assert_equals(marker_groups[0]['host'], 'localhost', "Should preserve host")
+    assert_equals(marker_groups[0]['port'], 8080, "Should preserve port")
+    print("  [PASS] test_register_aggregator_config_preserves_api_groups")
+
+def test_process_accumulated_modifications_single():
+    """Test process_accumulated_modifications with single modification."""
+    mods = [
+        {
+            '_aggregator_api_groups': [
+                {'group': 'servicemodel.ext.grafana.com', 'version': 'v1alpha1'}
+            ],
+            '_target': 'grafana',
+        }
+    ]
+    result = process_accumulated_modifications(mods, '/tmp')
+
+    assert_true('services' in result, "Result should have services key")
+    assert_true('aggregator-config' in result['services'], "Should create aggregator-config service")
+
     command = result['services']['aggregator-config']['command']
-    # Command should be ['-c', '...script...']
     assert_equals(len(command), 2, "Command should have 2 elements")
     assert_equals(command[0], '-c', "First element should be -c")
 
     script = command[1]
-    # Check YAML content is in script
-    assert_contains(script, '- group: test.ext.grafana.com', "Should contain group")
-    assert_contains(script, '  version: v1', "Should contain version")
-    assert_contains(script, '  host: localhost', "Should contain host")
-    assert_contains(script, '  port: 8080', "Should contain port")
-    print("  [PASS] test_register_aggregator_config_yaml_format")
+    assert_contains(script, 'servicemodel.ext.grafana.com', "Should contain group")
+    assert_contains(script, 'v1alpha1', "Should contain version")
+    print("  [PASS] test_process_accumulated_modifications_single")
 
-def test_register_aggregator_config_multiple_groups():
-    """Test register_aggregator_config with multiple API groups."""
-    result = register_aggregator_config(api_groups=[
+def test_process_accumulated_modifications_grafana_depends_on():
+    """Test process_accumulated_modifications adds grafana depends_on aggregator-config."""
+    mods = [
         {
-            'group': 'servicemodel.ext.grafana.com',
-            'version': 'v1alpha1',
+            '_aggregator_api_groups': [
+                {'group': 'test.ext.grafana.com', 'version': 'v1alpha1'}
+            ],
+            '_target': 'grafana',
+        }
+    ]
+    result = process_accumulated_modifications(mods, '/tmp')
+
+    assert_true('grafana' in result['services'], "Should have grafana service")
+    assert_true('depends_on' in result['services']['grafana'], "Grafana should have depends_on")
+    assert_in('aggregator-config', result['services']['grafana']['depends_on'],
+              "Grafana should depend on aggregator-config")
+    print("  [PASS] test_process_accumulated_modifications_grafana_depends_on")
+
+def test_process_accumulated_modifications_multiple():
+    """Test process_accumulated_modifications accumulates multiple api_groups."""
+    mods = [
+        {
+            '_aggregator_api_groups': [
+                {'group': 'servicemodel.ext.grafana.com', 'version': 'v1alpha1'}
+            ],
+            '_target': 'grafana',
         },
         {
-            'group': 'another.ext.grafana.com',
-            'version': 'v1beta1',
-        }
-    ])
-    script = result['services']['aggregator-config']['command'][1]
-    # Should contain both groups
-    assert_contains(script, 'servicemodel.ext.grafana.com', "Should contain first group")
-    assert_contains(script, 'another.ext.grafana.com', "Should contain second group")
-    assert_contains(script, 'v1alpha1', "Should contain first version")
-    assert_contains(script, 'v1beta1', "Should contain second version")
-    print("  [PASS] test_register_aggregator_config_multiple_groups")
-
-def test_register_aggregator_config_default_host_port():
-    """Test register_aggregator_config uses defaults for host and port."""
-    result = register_aggregator_config(api_groups=[
+            '_aggregator_api_groups': [
+                {'group': 'gamma.ext.grafana.com', 'version': 'v1alpha1'}
+            ],
+            '_target': 'grafana',
+        },
         {
-            'group': 'test.ext.grafana.com',
-            'version': 'v1',
-            # No host or port specified
-        }
-    ])
+            '_aggregator_api_groups': [
+                {'group': 'slo.plugins.grafana.com', 'version': 'v1alpha1'}
+            ],
+            '_target': 'grafana',
+        },
+    ]
+    result = process_accumulated_modifications(mods, '/tmp')
+
     script = result['services']['aggregator-config']['command'][1]
-    # Should use defaults: k3s-apiserver:6443
+    # All three groups should be in a single command
+    assert_contains(script, 'servicemodel.ext.grafana.com', "Should contain first group")
+    assert_contains(script, 'gamma.ext.grafana.com', "Should contain second group")
+    assert_contains(script, 'slo.plugins.grafana.com', "Should contain third group")
+    print("  [PASS] test_process_accumulated_modifications_multiple")
+
+def test_process_accumulated_modifications_deduplicates():
+    """Test process_accumulated_modifications deduplicates by group name."""
+    mods = [
+        {
+            '_aggregator_api_groups': [
+                {'group': 'test.ext.grafana.com', 'version': 'v1alpha1'}
+            ],
+            '_target': 'grafana',
+        },
+        {
+            '_aggregator_api_groups': [
+                {'group': 'test.ext.grafana.com', 'version': 'v1alpha1'}  # Duplicate
+            ],
+            '_target': 'grafana',
+        },
+    ]
+    result = process_accumulated_modifications(mods, '/tmp')
+
+    script = result['services']['aggregator-config']['command'][1]
+    # Count occurrences - should only appear once
+    count = script.count('test.ext.grafana.com')
+    assert_equals(count, 1, "Duplicate group should be deduplicated")
+    print("  [PASS] test_process_accumulated_modifications_deduplicates")
+
+def test_process_accumulated_modifications_default_host_port():
+    """Test process_accumulated_modifications uses defaults for host and port."""
+    mods = [
+        {
+            '_aggregator_api_groups': [
+                {'group': 'test.ext.grafana.com', 'version': 'v1'}
+            ],
+            '_target': 'grafana',
+        }
+    ]
+    result = process_accumulated_modifications(mods, '/tmp')
+
+    script = result['services']['aggregator-config']['command'][1]
     assert_contains(script, 'host: k3s-apiserver', "Should use default host")
     assert_contains(script, 'port: 6443', "Should use default port")
-    print("  [PASS] test_register_aggregator_config_default_host_port")
+    print("  [PASS] test_process_accumulated_modifications_default_host_port")
 
-def test_register_aggregator_config_custom_host_port():
-    """Test register_aggregator_config with custom host and port."""
-    result = register_aggregator_config(api_groups=[
+def test_process_accumulated_modifications_custom_host_port():
+    """Test process_accumulated_modifications with custom host and port."""
+    mods = [
         {
-            'group': 'test.ext.grafana.com',
-            'version': 'v1',
-            'host': 'custom-host',
-            'port': 9999,
+            '_aggregator_api_groups': [
+                {'group': 'test.ext.grafana.com', 'version': 'v1', 'host': 'custom-host', 'port': 9999}
+            ],
+            '_target': 'grafana',
         }
-    ])
+    ]
+    result = process_accumulated_modifications(mods, '/tmp')
+
     script = result['services']['aggregator-config']['command'][1]
     assert_contains(script, 'host: custom-host', "Should use custom host")
     assert_contains(script, 'port: 9999', "Should use custom port")
-    print("  [PASS] test_register_aggregator_config_custom_host_port")
+    print("  [PASS] test_process_accumulated_modifications_custom_host_port")
+
+def test_process_accumulated_modifications_empty():
+    """Test process_accumulated_modifications returns empty dict when no markers."""
+    mods = [
+        {'_target': 'mysql', '_database_requirement': 'grafana'},  # Not an aggregator marker
+    ]
+    result = process_accumulated_modifications(mods, '/tmp')
+
+    assert_equals(result, {}, "Should return empty dict when no api_groups markers")
+    print("  [PASS] test_process_accumulated_modifications_empty")
 
 # ============================================================================
 # Run All Tests
@@ -311,11 +445,17 @@ def run_tests():
     test_provision_plugins_unique_mount_points()
 
     print("\n=== register_aggregator_config Tests ===")
-    test_register_aggregator_config_single_group()
-    test_register_aggregator_config_yaml_format()
-    test_register_aggregator_config_multiple_groups()
-    test_register_aggregator_config_default_host_port()
-    test_register_aggregator_config_custom_host_port()
+    test_register_aggregator_config_returns_marker()
+    test_register_aggregator_config_preserves_api_groups()
+
+    print("\n=== process_accumulated_modifications Tests ===")
+    test_process_accumulated_modifications_single()
+    test_process_accumulated_modifications_grafana_depends_on()
+    test_process_accumulated_modifications_multiple()
+    test_process_accumulated_modifications_deduplicates()
+    test_process_accumulated_modifications_default_host_port()
+    test_process_accumulated_modifications_custom_host_port()
+    test_process_accumulated_modifications_empty()
 
     print("\n" + "=" * 50)
     print("All tests passed!")
