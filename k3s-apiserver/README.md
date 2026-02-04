@@ -132,6 +132,88 @@ if __file__ == config.main_path:
 - No race conditions: runs after Docker Compose starts, not during Tiltfile evaluation
 - Per-project copies: each orchestrator gets its own local copy
 
+### `register_admission_config(admission_yaml_path, resource_name_suffix='')`
+
+Register admission webhook configuration with automatic caBundle injection.
+
+**Parameters:**
+- `admission_yaml_path`: Path to admission webhook config template (must contain `caBundle: .*` placeholder)
+- `resource_name_suffix` (optional): Suffix for service name (creates `admission-setup-{suffix}`)
+
+**Example:**
+```python
+k3s.register_admission_config(
+    admission_yaml_path=os.path.dirname(__file__) + '/local/admission.yaml',
+    resource_name_suffix='myapp'
+)
+```
+
+**Admission YAML template format:**
+```yaml
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: my-operator-webhook
+webhooks:
+- name: mutate.myapp.com
+  clientConfig:
+    service:
+      name: my-operator
+      namespace: default
+      path: /mutate
+    caBundle: PLACEHOLDER  # Replaced with actual certificate
+  rules:
+  - operations: ["CREATE", "UPDATE"]
+    apiGroups: ["myapp.example.com"]
+    apiVersions: ["v1alpha1"]
+    resources: ["myresources"]
+```
+
+### `register_roles(roles_yaml_path, resource_name_suffix='roles')`
+
+Apply RBAC roles and bindings from a YAML file.
+
+**Parameters:**
+- `roles_yaml_path`: Absolute path to YAML file with ClusterRoles, ClusterRoleBindings, Roles, RoleBindings
+- `resource_name_suffix` (optional): Suffix for service name (creates `roles-setup-{suffix}`)
+
+**Example:**
+```python
+k3s.register_roles(
+    roles_yaml_path=os.path.dirname(__file__) + '/local/roles.yaml',
+    resource_name_suffix='labels'
+)
+```
+
+### `create_namespace(namespace_specs)`
+
+Create Kubernetes namespaces in the k3s cluster.
+
+**Parameters:**
+- `namespace_specs`: List of dicts, each with:
+  - `name` (required): Namespace name
+  - `labels` (optional): Dict of labels to apply
+
+**Example:**
+```python
+k3s.create_namespace(namespace_specs=[
+    {'name': 'stacks-1001'},
+    {'name': 'monitoring', 'labels': {'env': 'dev'}},
+])
+```
+
+### `enable_in_cluster_config(service_names)`
+
+Inject `KUBERNETES_SERVICE_HOST` and `KUBERNETES_SERVICE_PORT` environment variables for services using in-cluster authentication.
+
+**Parameters:**
+- `service_names`: List of service names that need in-cluster config
+
+**Example:**
+```python
+k3s.enable_in_cluster_config(service_names=['my-operator', 'my-controller'])
+```
+
 ## Wire-When Rules
 
 This composable does not export wire-when rules. Instead, other composables (like Grafana) define how they wire to k3s-apiserver when it's present.

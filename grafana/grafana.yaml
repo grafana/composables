@@ -5,7 +5,7 @@
 
 services:
   grafana:
-    image: grafana/grafana-enterprise:latest
+    image: ${GRAFANA_IMAGE:-grafana/grafana-enterprise}:${GRAFANA_VERSION:-latest}
     container_name: 'grafana'
     user: root
     ports:
