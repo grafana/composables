@@ -6,7 +6,7 @@
 
 COMPOSABLES_URL = os.getenv('COMPOSABLES_URL', 'file://' + os.path.abspath(os.path.dirname(__file__) + '/../..'))
 COMPOSE_COMPOSER_URL = os.getenv('COMPOSE_COMPOSER_URL', 'https://github.com/grafana/tilt-extensions')
-COMPOSE_COMPOSER_REF = os.getenv('COMPOSE_COMPOSER_REF', 'compose-composer')
+COMPOSE_COMPOSER_REF = os.getenv('COMPOSE_COMPOSER_REF', 'main')
 
 # Set up extension repo for standalone mode only
 if __file__ == config.main_path:
