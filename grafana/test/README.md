@@ -44,13 +44,21 @@ Tests for the plugin provisioning helper function:
 
 ### register_aggregator_config() Helper
 
-Tests for the API aggregation configuration helper:
+Tests for the API aggregation configuration helper. This helper uses the accumulation
+pattern - it returns a marker dict that `process_accumulated_modifications()` collects
+and merges into a single aggregator-config service.
 
-- ✓ Single API group configuration
-- ✓ YAML format correctness
-- ✓ Multiple API groups configuration
+**register_aggregator_config Tests:**
+- ✓ Returns marker dict with `_aggregator_api_groups` key
+- ✓ Preserves api_groups in marker for later processing
+
+**process_accumulated_modifications Tests:**
+- ✓ Single API group generates correct service
+- ✓ Multiple API groups from different composables are accumulated
+- ✓ Duplicate groups are deduplicated by group name
 - ✓ Default values (host='k3s-apiserver', port=6443)
-- ✓ Custom host and port values
+- ✓ Custom host and port values preserved
+- ✓ Returns empty dict when no api_groups markers present
 
 **Error Validation:** The helper includes fail() calls for:
 - Empty api_groups list
@@ -183,11 +191,16 @@ Current test status: **All tests passing** ✓
   [PASS] test_provision_plugins_unique_mount_points
 
 === register_aggregator_config Tests ===
-  [PASS] test_register_aggregator_config_single_group
-  [PASS] test_register_aggregator_config_yaml_format
-  [PASS] test_register_aggregator_config_multiple_groups
-  [PASS] test_register_aggregator_config_default_host_port
-  [PASS] test_register_aggregator_config_custom_host_port
+  [PASS] test_register_aggregator_config_returns_marker
+  [PASS] test_register_aggregator_config_preserves_api_groups
+
+=== process_accumulated_modifications Tests ===
+  [PASS] test_process_accumulated_modifications_single
+  [PASS] test_process_accumulated_modifications_multiple
+  [PASS] test_process_accumulated_modifications_deduplicates
+  [PASS] test_process_accumulated_modifications_default_host_port
+  [PASS] test_process_accumulated_modifications_custom_host_port
+  [PASS] test_process_accumulated_modifications_empty
 
 ==================================================
 All tests passed!
@@ -198,11 +211,10 @@ All tests passed!
 
 Potential areas for expanded test coverage:
 
-1. **Multi-orchestrator config merging** - When implemented, test that multiple plugins can register API groups that get merged into a single config
-2. **cc_wire_when() validation** - Verify wire-when rules produce correct compose overrides
-3. **Runtime behavior tests** - Automated tests that start containers and verify runtime behavior
-4. **Performance tests** - Test behavior with large numbers of API groups or plugin paths
-5. **Error recovery tests** - Test graceful handling of malformed YAML or missing files
+1. **cc_wire_when() validation** - Verify wire-when rules produce correct compose overrides
+2. **Runtime behavior tests** - Automated tests that start containers and verify runtime behavior
+3. **Performance tests** - Test behavior with large numbers of API groups or plugin paths
+4. **Error recovery tests** - Test graceful handling of malformed YAML or missing files
 
 ## Related Documentation
 

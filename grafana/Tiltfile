@@ -5,10 +5,11 @@
 #   cc_export(cc)                  - Returns plugin struct for compose_composer
 #   cc_wire_when(cc)              - Conditional wiring rules
 #   provision_plugins(cc, ...)     - Helper to mount plugin provisioning directories
-#   register_aggregator_config(cc, ...) - Configure API server aggregation for AppPlatform
+#   register_aggregator_config(cc, ...) - Declare API groups for aggregation (accumulated)
 #   register_plugin(cc, ...)       - Helper to register Grafana plugins
 #   register_dashboards(cc, ...)   - Register dashboards from provisioning directory
 #   configure_data_volume(cc, ...) - Configure Grafana data volume persistence
+#   process_accumulated_modifications() - Callback invoked by compose_composer (not auto-bound)
 
 def provision_plugins(cc, plugin_paths=[]):
     """
@@ -310,10 +311,11 @@ def register_plugin(cc, plugin_specs):
 
 def register_aggregator_config(cc, api_groups):
     """
-    Configure API server aggregation for Grafana AppPlatform.
+    Declare API groups for Grafana AppPlatform aggregation.
 
-    This helper enables Grafana to aggregate external Kubernetes API servers
-    by creating a configuration file that lists the API groups to expose.
+    This helper registers API groups that should be aggregated by Grafana.
+    Multiple composables can call this function, and all api_groups will be
+    accumulated and written to a single configuration file.
 
     Args:
         cc: Orchestrator's cc struct (injected by compose_composer)
@@ -324,7 +326,8 @@ def register_aggregator_config(cc, api_groups):
             - port: int      - API server port (default: 6443)
 
     Returns:
-        Dict with compose_overrides structure to customize the aggregator-config service
+        Dict with _aggregator_api_groups marker for compose_composer to process.
+        The actual aggregator-config service is created by process_accumulated_modifications().
 
     Example:
         grafana = cc_import(
@@ -355,8 +358,7 @@ def register_aggregator_config(cc, api_groups):
     if not api_groups:
         fail("api_groups cannot be empty - provide at least one API group")
 
-    # Build YAML content from api_groups
-    yaml_lines = []
+    # Validate api_groups structure
     for group_spec in api_groups:
         if type(group_spec) != 'dict':
             fail("Each api_group must be a dict, got: " + str(type(group_spec)))
@@ -364,6 +366,27 @@ def register_aggregator_config(cc, api_groups):
         if 'group' not in group_spec or 'version' not in group_spec:
             fail("Each api_group must have 'group' and 'version' fields")
 
+    # Return a marker that will be processed by process_accumulated_modifications()
+    # This allows multiple composables to register api_groups that get accumulated
+    return {
+        '_aggregator_api_groups': api_groups,
+        '_target': 'grafana',  # Marker that this modifies grafana dependency
+    }
+
+
+def _build_aggregator_config_service(all_api_groups):
+    """
+    Internal: Build the aggregator-config service with all accumulated api_groups.
+
+    Args:
+        all_api_groups: List of api_group dicts from all callers
+
+    Returns:
+        Dict with compose_overrides for the aggregator-config service
+    """
+    # Build YAML content from all api_groups
+    yaml_lines = []
+    for group_spec in all_api_groups:
         # Set defaults
         host = group_spec.get('host', 'k3s-apiserver')
         port = group_spec.get('port', 6443)
@@ -398,6 +421,56 @@ cat /certs/aggregator-config.yaml
             },
         },
     }
+
+
+def process_accumulated_modifications(all_modifications, orchestrator_dir):
+    """
+    Extract aggregator API group requirements from all modifications and generate service.
+
+    This callback is called by compose_composer AFTER collecting all modifications
+    from root + CLI plugins. Grafana handles its own api_groups accumulation.
+    NOT auto-bound - called directly by compose_composer.
+
+    Args:
+        all_modifications: List of all modification dicts from all plugins
+        orchestrator_dir: Directory for generating files (unused for aggregator config)
+
+    Returns:
+        Dict with compose_overrides to create the aggregator-config service with
+        all accumulated api_groups, or {} if no requirements found
+
+    Example:
+        # This callback is automatically invoked by compose_composer.
+        # Composables export this via _symbols and compose_composer calls it.
+    """
+    # Extract api_groups from modifications
+    all_api_groups = []
+    seen_groups = {}  # For deduplication by group name
+
+    for mod in all_modifications:
+        if type(mod) == 'dict' and '_aggregator_api_groups' in mod:
+            api_groups = mod['_aggregator_api_groups']
+            if type(api_groups) == 'list':
+                for group_spec in api_groups:
+                    # Deduplicate by group name
+                    group_name = group_spec.get('group', '')
+                    if group_name and group_name not in seen_groups:
+                        seen_groups[group_name] = True
+                        all_api_groups.append(group_spec)
+
+    if not all_api_groups:
+        return {}  # No requirements found
+
+    group_names = [g.get('group', '') for g in all_api_groups]
+    print("[grafana] Aggregating API groups: {}".format(', '.join(group_names)))
+
+    # Build the aggregator-config service with all api_groups
+    mod = _build_aggregator_config_service(all_api_groups)
+
+    # Add _target so compose_composer knows this modifies the grafana dependency
+    mod['_target'] = 'grafana'
+
+    return mod
 
 def configure_data_volume(cc, enabled=True):
     """
