@@ -1,0 +1,242 @@
+# Integration tests for grafana user provisioning
+# Run with: tilt ci -f Tiltfile.integration-users (from this directory)
+#
+# This test actually starts Grafana, provisions users via the
+# grafana-user-setup service, then verifies users exist via the API.
+
+COMPOSABLES_URL = os.getenv('COMPOSABLES_URL', 'file://' + os.path.abspath(os.path.dirname(__file__) + '/../..'))
+COMPOSE_COMPOSER_URL = os.getenv('COMPOSE_COMPOSER_URL', 'https://github.com/grafana/tilt-extensions')
+COMPOSE_COMPOSER_REF = os.getenv('COMPOSE_COMPOSER_REF', 'main')
+
+# Set up extension repo for standalone mode only
+if __file__ == config.main_path:
+    # Only use ref if not a file:// URL
+    if COMPOSE_COMPOSER_URL.startswith('file://'):
+        v1alpha1.extension_repo(name='grafana-tilt-extensions', url=COMPOSE_COMPOSER_URL)
+    else:
+        v1alpha1.extension_repo(name='grafana-tilt-extensions', url=COMPOSE_COMPOSER_URL, ref=COMPOSE_COMPOSER_REF)
+    v1alpha1.extension(name='compose_composer', repo_name='grafana-tilt-extensions', repo_path='compose_composer')
+
+load('ext://compose_composer', 'cc_init')
+
+allow_k8s_contexts(k8s_context())
+
+def cc_export(cc):
+    """
+    Test plugin that loads grafana with user provisioning to test the full flow.
+    """
+    grafana = cc.use('grafana', labels=['grafana'])
+
+    return cc.create(
+        'grafana-user-integration-test',
+        os.path.dirname(__file__) + '/docker-compose.yaml',
+        labels=['test'],
+        modifications=[
+            grafana.configure_admin(username='admin', password='admin'),
+            grafana.provision_users(user_specs=[
+                {
+                    'username': 'test-editor',
+                    'password': 'editor-pass',
+                    'role': 'Editor',
+                    'email': 'editor@test.local',
+                    'name': 'Test Editor',
+                },
+                {
+                    'username': 'test-viewer',
+                    'password': 'viewer-pass',
+                    'role': 'Viewer',
+                    'email': 'viewer@test.local',
+                    'name': 'Test Viewer',
+                },
+            ]),
+        ],
+    )
+
+# ============================================================================
+# Standalone Mode
+# ============================================================================
+
+if __file__ == config.main_path:
+    cc = cc_init('grafana-user-integration-test', composables_url=COMPOSABLES_URL)
+
+    print("\n" + "=" * 70)
+    print("Grafana User Provisioning Integration Test")
+    print("=" * 70)
+    print("\nThis integration test verifies:")
+    print("  1. provision_users() creates a grafana-user-setup service")
+    print("  2. configure_admin() sets admin credentials")
+    print("  3. grafana-user-setup runs after Grafana is healthy")
+    print("  4. Users are created with correct org roles")
+    print("\nRunning compose_composer pipeline...")
+    print("=" * 70 + "\n")
+
+    # Generate master compose
+    master = cc.generate_master_compose(
+        cc_export(cc),
+        cc.parse_cli_plugins(),
+    )
+
+    # ====================================================================
+    # Verify staged files contain expected modifications
+    # ====================================================================
+
+    print("\n" + "=" * 70)
+    print("Verifying Staged Files")
+    print("=" * 70 + "\n")
+
+    staged_file = os.path.dirname(__file__) + '/.cc/grafana.yaml'
+    staged_content = str(read_file(staged_file))
+
+    def assert_contains(content, substring, description):
+        if substring not in content:
+            fail("INTEGRATION TEST FAILED: " + description + "\n  Expected to find: " + substring)
+        print("  [PASS] " + description)
+
+    print("Checking grafana-user-setup service in staged file:")
+
+    assert_contains(staged_content, "grafana-user-setup:", "grafana-user-setup service exists")
+    assert_contains(staged_content, "alpine:latest", "Uses alpine image")
+    assert_contains(staged_content, "service_healthy", "Depends on grafana being healthy")
+    assert_contains(staged_content, "GRAFANA_URL", "Has GRAFANA_URL env var")
+    assert_contains(staged_content, "ADMIN_USER", "Has ADMIN_USER env var")
+    assert_contains(staged_content, "test-editor", "Script provisions test-editor user")
+    assert_contains(staged_content, "test-viewer", "Script provisions test-viewer user")
+
+    print("\nChecking admin credentials in staged file:")
+
+    assert_contains(staged_content, "GF_SECURITY_ADMIN_USER: admin", "Admin user set on grafana service")
+    assert_contains(staged_content, "GF_SECURITY_ADMIN_PASSWORD: admin", "Admin password set on grafana service")
+
+    # ====================================================================
+    # Start services and verify users via API
+    # ====================================================================
+
+    print("\n" + "=" * 70)
+    print("Starting services for live verification...")
+    print("=" * 70 + "\n")
+
+    cc.docker_compose(master)
+
+    local_resource(
+        'verify-users',
+        cmd='''
+echo "=== Verifying Grafana User Provisioning ==="
+
+GRAFANA_URL="http://localhost:${GRAFANA_PORT:-3000}"
+ADMIN_USER="admin"
+ADMIN_PASS="admin"
+MAX_RETRIES=60
+
+# Wait for Grafana to be ready
+echo "Waiting for Grafana to be ready..."
+RETRIES=0
+while [ $RETRIES -lt $MAX_RETRIES ]; do
+  if curl -sf -u "$ADMIN_USER:$ADMIN_PASS" "$GRAFANA_URL/api/org" > /dev/null 2>&1; then
+    echo "Grafana is ready"
+    break
+  fi
+  RETRIES=$((RETRIES + 1))
+  sleep 2
+done
+
+if [ $RETRIES -eq $MAX_RETRIES ]; then
+  echo "FAIL: Grafana did not become ready"
+  exit 1
+fi
+
+# Wait for user provisioning to complete (check for test-editor)
+echo "Waiting for user provisioning to complete..."
+RETRIES=0
+while [ $RETRIES -lt $MAX_RETRIES ]; do
+  STATUS=$(curl -s -o /dev/null -w "%{http_code}" -u "$ADMIN_USER:$ADMIN_PASS" "$GRAFANA_URL/api/users/lookup?loginOrEmail=test-editor")
+  if [ "$STATUS" = "200" ]; then
+    echo "User provisioning completed"
+    break
+  fi
+  RETRIES=$((RETRIES + 1))
+  sleep 2
+done
+
+if [ $RETRIES -eq $MAX_RETRIES ]; then
+  echo "FAIL: User provisioning did not complete (test-editor not found)"
+  exit 1
+fi
+
+PASS=0
+FAIL=0
+
+# Verify test-editor exists
+echo ""
+echo "--- Checking test-editor ---"
+EDITOR_RESP=$(curl -s -u "$ADMIN_USER:$ADMIN_PASS" "$GRAFANA_URL/api/users/lookup?loginOrEmail=test-editor")
+EDITOR_LOGIN=$(echo "$EDITOR_RESP" | python3 -c "import sys,json; print(json.load(sys.stdin).get('login',''))" 2>/dev/null || echo "")
+if [ "$EDITOR_LOGIN" = "test-editor" ]; then
+  echo "  [PASS] test-editor user exists"
+  PASS=$((PASS + 1))
+else
+  echo "  [FAIL] test-editor user not found: $EDITOR_RESP"
+  FAIL=$((FAIL + 1))
+fi
+
+# Verify test-editor has Editor org role
+EDITOR_ID=$(echo "$EDITOR_RESP" | python3 -c "import sys,json; print(json.load(sys.stdin).get('id',''))" 2>/dev/null || echo "")
+ORG_USERS=$(curl -s -u "$ADMIN_USER:$ADMIN_PASS" "$GRAFANA_URL/api/org/users")
+EDITOR_ROLE=$(echo "$ORG_USERS" | python3 -c "
+import sys,json
+users = json.load(sys.stdin)
+for u in users:
+    if u.get('login') == 'test-editor':
+        print(u.get('role', ''))
+        break
+" 2>/dev/null || echo "")
+if [ "$EDITOR_ROLE" = "Editor" ]; then
+  echo "  [PASS] test-editor has Editor role"
+  PASS=$((PASS + 1))
+else
+  echo "  [FAIL] test-editor role is '$EDITOR_ROLE', expected 'Editor'"
+  FAIL=$((FAIL + 1))
+fi
+
+# Verify test-viewer exists
+echo ""
+echo "--- Checking test-viewer ---"
+VIEWER_RESP=$(curl -s -u "$ADMIN_USER:$ADMIN_PASS" "$GRAFANA_URL/api/users/lookup?loginOrEmail=test-viewer")
+VIEWER_LOGIN=$(echo "$VIEWER_RESP" | python3 -c "import sys,json; print(json.load(sys.stdin).get('login',''))" 2>/dev/null || echo "")
+if [ "$VIEWER_LOGIN" = "test-viewer" ]; then
+  echo "  [PASS] test-viewer user exists"
+  PASS=$((PASS + 1))
+else
+  echo "  [FAIL] test-viewer user not found: $VIEWER_RESP"
+  FAIL=$((FAIL + 1))
+fi
+
+# Verify test-viewer has Viewer org role
+VIEWER_ROLE=$(echo "$ORG_USERS" | python3 -c "
+import sys,json
+users = json.load(sys.stdin)
+for u in users:
+    if u.get('login') == 'test-viewer':
+        print(u.get('role', ''))
+        break
+" 2>/dev/null || echo "")
+if [ "$VIEWER_ROLE" = "Viewer" ]; then
+  echo "  [PASS] test-viewer has Viewer role"
+  PASS=$((PASS + 1))
+else
+  echo "  [FAIL] test-viewer role is '$VIEWER_ROLE', expected 'Viewer'"
+  FAIL=$((FAIL + 1))
+fi
+
+echo ""
+echo "=== Results: $PASS passed, $FAIL failed ==="
+
+if [ $FAIL -gt 0 ]; then
+  echo "INTEGRATION TEST FAILED"
+  exit 1
+fi
+
+echo "ALL INTEGRATION TESTS PASSED"
+''',
+        resource_deps=['grafana-user-setup'],
+        labels=['test'],
+    )
