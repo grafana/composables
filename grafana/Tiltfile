@@ -9,6 +9,8 @@
 #   register_plugin(cc, ...)       - Helper to register Grafana plugins
 #   register_dashboards(cc, ...)   - Register dashboards from provisioning directory
 #   configure_data_volume(cc, ...) - Configure Grafana data volume persistence
+#   provision_users(cc, ...)       - Declare users to provision via API (accumulated)
+#   configure_admin(cc, ...)       - Set admin credentials for API calls
 #   process_accumulated_modifications() - Callback invoked by compose_composer (not auto-bound)
 
 def provision_plugins(cc, plugin_paths=[]):
@@ -429,25 +431,29 @@ cat /certs/aggregator-config.yaml
 
 def process_accumulated_modifications(all_modifications, orchestrator_dir):
     """
-    Extract aggregator API group requirements from all modifications and generate service.
+    Extract accumulated requirements from all modifications and generate services.
 
     This callback is called by compose_composer AFTER collecting all modifications
-    from root + CLI plugins. Grafana handles its own api_groups accumulation.
+    from root + CLI plugins. Grafana handles accumulation for:
+    - API groups (aggregator-config service)
+    - User provisioning (grafana-user-setup service)
+
     NOT auto-bound - called directly by compose_composer.
 
     Args:
         all_modifications: List of all modification dicts from all plugins
-        orchestrator_dir: Directory for generating files (unused for aggregator config)
+        orchestrator_dir: Directory for generating files (unused currently)
 
     Returns:
-        Dict with compose_overrides to create the aggregator-config service with
-        all accumulated api_groups, or {} if no requirements found
+        Dict with compose_overrides for accumulated services, or {} if none found
 
     Example:
         # This callback is automatically invoked by compose_composer.
         # Composables export this via _symbols and compose_composer calls it.
     """
-    # Extract api_groups from modifications
+    result = {}
+
+    # --- Pass 1: Extract api_groups for aggregator-config ---
     all_api_groups = []
     seen_groups = {}  # For deduplication by group name
 
@@ -462,19 +468,53 @@ def process_accumulated_modifications(all_modifications, orchestrator_dir):
                         seen_groups[group_name] = True
                         all_api_groups.append(group_spec)
 
-    if not all_api_groups:
+    if all_api_groups:
+        group_names = [g.get('group', '') for g in all_api_groups]
+        print("[grafana] Aggregating API groups: {}".format(', '.join(group_names)))
+        result = _build_aggregator_config_service(all_api_groups)
+
+    # --- Pass 2: Extract user specs for grafana-user-setup ---
+    all_user_specs = []
+    seen_users = {}  # For deduplication by username
+    admin_config = {}  # From configure_admin() calls
+
+    for mod in all_modifications:
+        if type(mod) != 'dict':
+            continue
+
+        # Collect user specs
+        if '_grafana_user_specs' in mod:
+            user_specs = mod['_grafana_user_specs']
+            if type(user_specs) == 'list':
+                for spec in user_specs:
+                    username = spec.get('username', '')
+                    if username and username not in seen_users:
+                        seen_users[username] = True
+                        all_user_specs.append(spec)
+
+        # Collect admin config (last one wins)
+        if '_grafana_admin_config' in mod:
+            admin_config = mod['_grafana_admin_config']
+
+    if all_user_specs:
+        usernames = [s.get('username', '') for s in all_user_specs]
+        print("[grafana] Provisioning users: {}".format(', '.join(usernames)))
+        user_mod = _build_user_provisioning_service(all_user_specs, admin_config)
+
+        # Merge user provisioning service into result
+        if 'services' in result:
+            for svc_name, svc_config in user_mod.get('services', {}).items():
+                result['services'][svc_name] = svc_config
+        else:
+            result = user_mod
+
+    if not result:
         return {}  # No requirements found
 
-    group_names = [g.get('group', '') for g in all_api_groups]
-    print("[grafana] Aggregating API groups: {}".format(', '.join(group_names)))
-
-    # Build the aggregator-config service with all api_groups
-    mod = _build_aggregator_config_service(all_api_groups)
-
     # Add _target so compose_composer knows this modifies the grafana dependency
-    mod['_target'] = 'grafana'
+    result['_target'] = 'grafana'
 
-    return mod
+    return result
 
 def configure_data_volume(cc, enabled=True):
     """
@@ -599,6 +639,277 @@ def register_dashboards(cc, dashboards_path):
             },
         },
     }
+
+def provision_users(cc, user_specs):
+    """
+    Declare users to provision in Grafana via the HTTP API.
+
+    This helper registers user specifications that will be accumulated from
+    multiple composables and provisioned by a single setup service after
+    Grafana starts.
+
+    Args:
+        cc: Orchestrator's cc struct (injected by compose_composer)
+        user_specs: List of dicts, each with:
+            - username: str (required) - Login name for the user
+            - password: str (required) - User password
+            - role: str (optional) - Org role: 'Viewer', 'Editor', or 'Admin' (default: 'Viewer')
+            - rbac_roles: list[str] (optional) - Fine-grained RBAC role names
+                          (e.g., 'fixed:dashboards:writer'). Requires Grafana Enterprise.
+            - email: str (optional) - User email address
+            - name: str (optional) - User display name
+
+    Returns:
+        Dict with _grafana_user_specs marker for compose_composer to process.
+        The actual grafana-user-setup service is created by process_accumulated_modifications().
+
+    Example:
+        grafana = cc.use('grafana')
+
+        def cc_export(cc):
+            return cc.create(
+                'my-app',
+                os.path.dirname(__file__) + '/docker-compose.yaml',
+                grafana,
+                modifications=[
+                    grafana.provision_users(user_specs=[
+                        {
+                            'username': 'dev-user',
+                            'password': 'dev-pass',
+                            'role': 'Editor',
+                        },
+                        {
+                            'username': 'viewer',
+                            'password': 'viewer-pass',
+                            'role': 'Viewer',
+                            'rbac_roles': ['fixed:dashboards:reader'],
+                        },
+                    ]),
+                ],
+            )
+    """
+    if type(user_specs) != 'list':
+        fail("user_specs must be a list, got: " + str(type(user_specs)))
+
+    if not user_specs:
+        fail("user_specs cannot be empty - provide at least one user spec")
+
+    for spec in user_specs:
+        if type(spec) != 'dict':
+            fail("Each user spec must be a dict, got: " + str(type(spec)))
+
+        if 'username' not in spec:
+            fail("User spec missing required 'username' field: " + str(spec))
+
+        if 'password' not in spec:
+            fail("User spec missing required 'password' field for user: " + spec['username'])
+
+    return {
+        '_grafana_user_specs': user_specs,
+        '_target': 'grafana',
+    }
+
+
+def configure_admin(cc, username='admin', password='admin'):
+    """
+    Set admin credentials for Grafana and the user provisioning service.
+
+    This helper sets the admin username and password on both the Grafana service
+    (via GF_SECURITY_ADMIN_USER/PASSWORD) and passes them to the user provisioning
+    service for API authentication. It also enables basic auth (GF_AUTH_BASIC_ENABLED)
+    on Grafana, which is required for the provisioning service's API calls.
+
+    If not called, the provisioning service falls back to GF_SECURITY_ADMIN_USER
+    and GF_SECURITY_ADMIN_PASSWORD environment variables, defaulting to admin/admin.
+
+    Args:
+        cc: Orchestrator's cc struct (injected by compose_composer)
+        username: str - Admin username (default: 'admin')
+        password: str - Admin password (default: 'admin')
+
+    Returns:
+        Dict with both a _grafana_admin_config marker and compose_overrides
+        to set Grafana's admin credentials.
+
+    Example:
+        grafana = cc.use('grafana')
+
+        def cc_export(cc):
+            return cc.create(
+                'my-app',
+                os.path.dirname(__file__) + '/docker-compose.yaml',
+                grafana,
+                modifications=[
+                    grafana.configure_admin(username='myadmin', password='secret'),
+                    grafana.provision_users(user_specs=[
+                        {'username': 'dev', 'password': 'dev', 'role': 'Editor'},
+                    ]),
+                ],
+            )
+    """
+    return {
+        '_grafana_admin_config': {'username': username, 'password': password},
+        '_target': 'grafana',
+        'services': {
+            'grafana': {
+                'environment': {
+                    'GF_SECURITY_ADMIN_USER': username,
+                    'GF_SECURITY_ADMIN_PASSWORD': password,
+                    'GF_AUTH_BASIC_ENABLED': 'true',
+                },
+            },
+        },
+    }
+
+
+def _build_user_provisioning_service(all_user_specs, admin_config):
+    """
+    Internal: Build the grafana-user-setup service with all accumulated user specs.
+
+    Args:
+        all_user_specs: List of user spec dicts from all callers
+        admin_config: Dict with 'username' and 'password' for admin API auth
+
+    Returns:
+        Dict with compose_overrides for the grafana-user-setup service
+
+    Note: Shell variables use $$ because Docker Compose interpolates $ in commands.
+          $$ in compose YAML becomes a literal $ for the shell.
+    """
+    admin_user = admin_config.get('username', 'admin')
+    admin_pass = admin_config.get('password', 'admin')
+
+    # Build per-user provisioning script blocks
+    user_blocks = []
+    for spec in all_user_specs:
+        username = spec['username']
+        password = spec['password']
+        role = spec.get('role', 'Viewer')
+        email = spec.get('email', username + '@localhost')
+        name = spec.get('name', username)
+        rbac_roles = spec.get('rbac_roles', [])
+
+        block = '''
+echo "--- Provisioning user: %s ---"
+
+# Check if user already exists
+EXISTING=$$(curl -s -o /dev/null -w "%%{http_code}" \\
+  -u "$$ADMIN_USER:$$ADMIN_PASS" \\
+  "$$GRAFANA_URL/api/users/lookup?loginOrEmail=%s")
+
+if [ "$$EXISTING" = "200" ]; then
+  echo "User %s already exists, fetching ID..."
+  USER_ID=$$(curl -s -u "$$ADMIN_USER:$$ADMIN_PASS" \\
+    "$$GRAFANA_URL/api/users/lookup?loginOrEmail=%s" | jq -r '.id')
+else
+  echo "Creating user %s..."
+  CREATE_RESP=$$(curl -s -u "$$ADMIN_USER:$$ADMIN_PASS" \\
+    -H "Content-Type: application/json" \\
+    -d '{"login":"%s","password":"%s","email":"%s","name":"%s","OrgId":1}' \\
+    "$$GRAFANA_URL/api/admin/users")
+  echo "  Create response: $$CREATE_RESP"
+  USER_ID=$$(echo "$$CREATE_RESP" | jq -r '.id')
+fi
+
+if [ -z "$$USER_ID" ] || [ "$$USER_ID" = "null" ]; then
+  echo "  ERROR: Failed to get user ID for %s"
+else
+  echo "  User ID: $$USER_ID"
+
+  # Set org role
+  echo "  Setting org role to %s..."
+  curl -s -u "$$ADMIN_USER:$$ADMIN_PASS" \\
+    -X PATCH -H "Content-Type: application/json" \\
+    -d '{"role":"%s"}' \\
+    "$$GRAFANA_URL/api/org/users/$$USER_ID"
+  echo ""''' % (username, username, username, username, username,
+                username, password, email, name, username, role, role)
+
+        # Add RBAC role assignment if specified
+        for rbac_role in rbac_roles:
+            block += '''
+
+  # Assign RBAC role: %s
+  echo "  Assigning RBAC role: %s..."
+  ROLE_UID=$$(curl -s -u "$$ADMIN_USER:$$ADMIN_PASS" \\
+    "$$GRAFANA_URL/api/access-control/roles" | \\
+    jq -r '.[] | select(.name=="%s") | .uid')
+  if [ -n "$$ROLE_UID" ] && [ "$$ROLE_UID" != "null" ]; then
+    curl -s -u "$$ADMIN_USER:$$ADMIN_PASS" \\
+      -X POST -H "Content-Type: application/json" \\
+      -d "{\\"roleUid\\":\\"$$ROLE_UID\\",\\"global\\":false}" \\
+      "$$GRAFANA_URL/api/access-control/users/$$USER_ID/roles"
+    echo ""
+    echo "    Assigned role UID: $$ROLE_UID"
+  else
+    echo "    WARNING: RBAC role '%s' not found (requires Grafana Enterprise)"
+  fi''' % (rbac_role, rbac_role, rbac_role, rbac_role)
+
+        block += '''
+fi
+echo "--- Done: %s ---"
+''' % username
+
+        user_blocks.append(block)
+
+    script_body = '\n'.join(user_blocks)
+
+    # Build the full provisioning script
+    # Note: $$ is required for shell variables in Docker Compose commands
+    full_script = '''
+set -e
+
+echo "=== Grafana User Provisioning ==="
+echo "Grafana URL: $$GRAFANA_URL"
+echo "Admin user: $$ADMIN_USER"
+
+# Install dependencies
+apk add --no-cache curl jq > /dev/null 2>&1
+
+# Wait for Grafana API to be fully ready (healthcheck may pass before API is ready)
+echo "Waiting for Grafana API..."
+RETRIES=0
+MAX_RETRIES=30
+while [ $$RETRIES -lt $$MAX_RETRIES ]; do
+  if curl -s -u "$$ADMIN_USER:$$ADMIN_PASS" "$$GRAFANA_URL/api/org" > /dev/null 2>&1; then
+    echo "Grafana API is ready"
+    break
+  fi
+  RETRIES=$$(($$RETRIES + 1))
+  echo "  Attempt $$RETRIES/$$MAX_RETRIES - waiting..."
+  sleep 2
+done
+
+if [ $$RETRIES -eq $$MAX_RETRIES ]; then
+  echo "ERROR: Grafana API did not become ready"
+  exit 1
+fi
+
+%s
+
+echo ""
+echo "=== User provisioning complete ==="
+''' % script_body
+
+    return {
+        'services': {
+            'grafana-user-setup': {
+                'image': 'alpine:latest',
+                'depends_on': {
+                    'grafana': {'condition': 'service_healthy'},
+                },
+                'environment': {
+                    'GRAFANA_URL': 'http://grafana:3000',
+                    'ADMIN_USER': admin_user,
+                    'ADMIN_PASS': admin_pass,
+                },
+                'entrypoint': ['/bin/sh'],
+                'command': ['-c', full_script],
+                'restart': 'on-failure',
+            },
+        },
+    }
+
 
 def cc_export(cc):
     """Returns the plugin struct for compose_composer."""

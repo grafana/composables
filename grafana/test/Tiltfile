@@ -146,10 +146,195 @@ cat /certs/aggregator-config.yaml
     }
 
 
+def provision_users(user_specs):
+    """
+    Declare users to provision in Grafana via the HTTP API (test copy without cc param).
+    """
+    if type(user_specs) != 'list':
+        fail("user_specs must be a list, got: " + str(type(user_specs)))
+
+    if not user_specs:
+        fail("user_specs cannot be empty - provide at least one user spec")
+
+    for spec in user_specs:
+        if type(spec) != 'dict':
+            fail("Each user spec must be a dict, got: " + str(type(spec)))
+
+        if 'username' not in spec:
+            fail("User spec missing required 'username' field: " + str(spec))
+
+        if 'password' not in spec:
+            fail("User spec missing required 'password' field for user: " + spec['username'])
+
+    return {
+        '_grafana_user_specs': user_specs,
+        '_target': 'grafana',
+    }
+
+
+def configure_admin(username='admin', password='admin'):
+    """
+    Set admin credentials for Grafana and the user provisioning service (test copy without cc param).
+    """
+    return {
+        '_grafana_admin_config': {'username': username, 'password': password},
+        '_target': 'grafana',
+        'services': {
+            'grafana': {
+                'environment': {
+                    'GF_SECURITY_ADMIN_USER': username,
+                    'GF_SECURITY_ADMIN_PASSWORD': password,
+                    'GF_AUTH_BASIC_ENABLED': 'true',
+                },
+            },
+        },
+    }
+
+
+def _build_user_provisioning_service(all_user_specs, admin_config):
+    """
+    Internal: Build the grafana-user-setup service with all accumulated user specs.
+    Note: Shell variables use $$ because Docker Compose interpolates $ in commands.
+    """
+    admin_user = admin_config.get('username', 'admin')
+    admin_pass = admin_config.get('password', 'admin')
+
+    # Build per-user provisioning script blocks
+    user_blocks = []
+    for spec in all_user_specs:
+        username = spec['username']
+        password = spec['password']
+        role = spec.get('role', 'Viewer')
+        email = spec.get('email', username + '@localhost')
+        name = spec.get('name', username)
+        rbac_roles = spec.get('rbac_roles', [])
+
+        block = '''
+echo "--- Provisioning user: %s ---"
+
+# Check if user already exists
+EXISTING=$$(curl -s -o /dev/null -w "%%{http_code}" \\
+  -u "$$ADMIN_USER:$$ADMIN_PASS" \\
+  "$$GRAFANA_URL/api/users/lookup?loginOrEmail=%s")
+
+if [ "$$EXISTING" = "200" ]; then
+  echo "User %s already exists, fetching ID..."
+  USER_ID=$$(curl -s -u "$$ADMIN_USER:$$ADMIN_PASS" \\
+    "$$GRAFANA_URL/api/users/lookup?loginOrEmail=%s" | jq -r '.id')
+else
+  echo "Creating user %s..."
+  CREATE_RESP=$$(curl -s -u "$$ADMIN_USER:$$ADMIN_PASS" \\
+    -H "Content-Type: application/json" \\
+    -d '{"login":"%s","password":"%s","email":"%s","name":"%s","OrgId":1}' \\
+    "$$GRAFANA_URL/api/admin/users")
+  echo "  Create response: $$CREATE_RESP"
+  USER_ID=$$(echo "$$CREATE_RESP" | jq -r '.id')
+fi
+
+if [ -z "$$USER_ID" ] || [ "$$USER_ID" = "null" ]; then
+  echo "  ERROR: Failed to get user ID for %s"
+else
+  echo "  User ID: $$USER_ID"
+
+  # Set org role
+  echo "  Setting org role to %s..."
+  curl -s -u "$$ADMIN_USER:$$ADMIN_PASS" \\
+    -X PATCH -H "Content-Type: application/json" \\
+    -d '{"role":"%s"}' \\
+    "$$GRAFANA_URL/api/org/users/$$USER_ID"
+  echo ""''' % (username, username, username, username, username,
+                username, password, email, name, username, role, role)
+
+        for rbac_role in rbac_roles:
+            block += '''
+
+  # Assign RBAC role: %s
+  echo "  Assigning RBAC role: %s..."
+  ROLE_UID=$$(curl -s -u "$$ADMIN_USER:$$ADMIN_PASS" \\
+    "$$GRAFANA_URL/api/access-control/roles" | \\
+    jq -r '.[] | select(.name=="%s") | .uid')
+  if [ -n "$$ROLE_UID" ] && [ "$$ROLE_UID" != "null" ]; then
+    curl -s -u "$$ADMIN_USER:$$ADMIN_PASS" \\
+      -X POST -H "Content-Type: application/json" \\
+      -d "{\\"roleUid\\":\\"$$ROLE_UID\\",\\"global\\":false}" \\
+      "$$GRAFANA_URL/api/access-control/users/$$USER_ID/roles"
+    echo ""
+    echo "    Assigned role UID: $$ROLE_UID"
+  else
+    echo "    WARNING: RBAC role '%s' not found (requires Grafana Enterprise)"
+  fi''' % (rbac_role, rbac_role, rbac_role, rbac_role)
+
+        block += '''
+fi
+echo "--- Done: %s ---"
+''' % username
+
+        user_blocks.append(block)
+
+    script_body = '\n'.join(user_blocks)
+
+    full_script = '''
+set -e
+
+echo "=== Grafana User Provisioning ==="
+echo "Grafana URL: $$GRAFANA_URL"
+echo "Admin user: $$ADMIN_USER"
+
+# Install dependencies
+apk add --no-cache curl jq > /dev/null 2>&1
+
+# Wait for Grafana API to be fully ready (healthcheck may pass before API is ready)
+echo "Waiting for Grafana API..."
+RETRIES=0
+MAX_RETRIES=30
+while [ $$RETRIES -lt $$MAX_RETRIES ]; do
+  if curl -s -u "$$ADMIN_USER:$$ADMIN_PASS" "$$GRAFANA_URL/api/org" > /dev/null 2>&1; then
+    echo "Grafana API is ready"
+    break
+  fi
+  RETRIES=$$(($$RETRIES + 1))
+  echo "  Attempt $$RETRIES/$$MAX_RETRIES - waiting..."
+  sleep 2
+done
+
+if [ $$RETRIES -eq $$MAX_RETRIES ]; then
+  echo "ERROR: Grafana API did not become ready"
+  exit 1
+fi
+
+%s
+
+echo ""
+echo "=== User provisioning complete ==="
+''' % script_body
+
+    return {
+        'services': {
+            'grafana-user-setup': {
+                'image': 'alpine:latest',
+                'depends_on': {
+                    'grafana': {'condition': 'service_healthy'},
+                },
+                'environment': {
+                    'GRAFANA_URL': 'http://grafana:3000',
+                    'ADMIN_USER': admin_user,
+                    'ADMIN_PASS': admin_pass,
+                },
+                'entrypoint': ['/bin/sh'],
+                'command': ['-c', full_script],
+                'restart': 'on-failure',
+            },
+        },
+    }
+
+
 def process_accumulated_modifications(all_modifications, orchestrator_dir):
     """
-    Extract aggregator API group requirements from all modifications and generate service.
+    Extract accumulated requirements from all modifications and generate services.
     """
+    result = {}
+
+    # --- Pass 1: Extract api_groups for aggregator-config ---
     all_api_groups = []
     seen_groups = {}
 
@@ -163,12 +348,44 @@ def process_accumulated_modifications(all_modifications, orchestrator_dir):
                         seen_groups[group_name] = True
                         all_api_groups.append(group_spec)
 
-    if not all_api_groups:
+    if all_api_groups:
+        result = _build_aggregator_config_service(all_api_groups)
+
+    # --- Pass 2: Extract user specs for grafana-user-setup ---
+    all_user_specs = []
+    seen_users = {}
+    admin_config = {}
+
+    for mod in all_modifications:
+        if type(mod) != 'dict':
+            continue
+
+        if '_grafana_user_specs' in mod:
+            user_specs = mod['_grafana_user_specs']
+            if type(user_specs) == 'list':
+                for spec in user_specs:
+                    username = spec.get('username', '')
+                    if username and username not in seen_users:
+                        seen_users[username] = True
+                        all_user_specs.append(spec)
+
+        if '_grafana_admin_config' in mod:
+            admin_config = mod['_grafana_admin_config']
+
+    if all_user_specs:
+        user_mod = _build_user_provisioning_service(all_user_specs, admin_config)
+
+        if 'services' in result:
+            for svc_name, svc_config in user_mod.get('services', {}).items():
+                result['services'][svc_name] = svc_config
+        else:
+            result = user_mod
+
+    if not result:
         return {}
 
-    mod = _build_aggregator_config_service(all_api_groups)
-    mod['_target'] = 'grafana'
-    return mod
+    result['_target'] = 'grafana'
+    return result
 
 # ============================================================================
 # Test Helpers
@@ -433,6 +650,262 @@ def test_process_accumulated_modifications_empty():
     print("  [PASS] test_process_accumulated_modifications_empty")
 
 # ============================================================================
+# provision_users Tests
+# ============================================================================
+
+def test_provision_users_returns_marker():
+    """Test provision_users returns a marker dict with correct format."""
+    result = provision_users(user_specs=[
+        {'username': 'testuser', 'password': 'testpass'},
+    ])
+    assert_true('_grafana_user_specs' in result, "Result should have _grafana_user_specs marker")
+    assert_true('_target' in result, "Result should have _target field")
+    assert_equals(result['_target'], 'grafana', "Target should be grafana")
+    assert_equals(len(result['_grafana_user_specs']), 1, "Should have 1 user spec")
+    print("  [PASS] test_provision_users_returns_marker")
+
+def test_provision_users_preserves_specs():
+    """Test provision_users preserves all user spec fields."""
+    result = provision_users(user_specs=[
+        {
+            'username': 'dev-user',
+            'password': 'dev-pass',
+            'role': 'Editor',
+            'rbac_roles': ['fixed:dashboards:writer'],
+            'email': 'dev@example.com',
+            'name': 'Dev User',
+        },
+    ])
+    spec = result['_grafana_user_specs'][0]
+    assert_equals(spec['username'], 'dev-user', "Should preserve username")
+    assert_equals(spec['password'], 'dev-pass', "Should preserve password")
+    assert_equals(spec['role'], 'Editor', "Should preserve role")
+    assert_equals(spec['rbac_roles'], ['fixed:dashboards:writer'], "Should preserve rbac_roles")
+    assert_equals(spec['email'], 'dev@example.com', "Should preserve email")
+    assert_equals(spec['name'], 'Dev User', "Should preserve name")
+    print("  [PASS] test_provision_users_preserves_specs")
+
+def test_provision_users_multiple_users():
+    """Test provision_users with multiple user specs."""
+    result = provision_users(user_specs=[
+        {'username': 'user1', 'password': 'pass1'},
+        {'username': 'user2', 'password': 'pass2', 'role': 'Admin'},
+    ])
+    assert_equals(len(result['_grafana_user_specs']), 2, "Should have 2 user specs")
+    print("  [PASS] test_provision_users_multiple_users")
+
+# ============================================================================
+# configure_admin Tests
+# ============================================================================
+
+def test_configure_admin_returns_marker_and_override():
+    """Test configure_admin returns both marker and compose override."""
+    result = configure_admin(username='myadmin', password='secret')
+
+    # Check marker
+    assert_true('_grafana_admin_config' in result, "Should have admin config marker")
+    assert_equals(result['_grafana_admin_config']['username'], 'myadmin', "Marker should have username")
+    assert_equals(result['_grafana_admin_config']['password'], 'secret', "Marker should have password")
+
+    # Check target
+    assert_equals(result['_target'], 'grafana', "Target should be grafana")
+
+    # Check compose override
+    assert_true('services' in result, "Should have services key")
+    grafana_env = result['services']['grafana']['environment']
+    assert_equals(grafana_env['GF_SECURITY_ADMIN_USER'], 'myadmin', "Should set GF_SECURITY_ADMIN_USER")
+    assert_equals(grafana_env['GF_SECURITY_ADMIN_PASSWORD'], 'secret', "Should set GF_SECURITY_ADMIN_PASSWORD")
+    assert_equals(grafana_env['GF_AUTH_BASIC_ENABLED'], 'true', "Should enable basic auth")
+    print("  [PASS] test_configure_admin_returns_marker_and_override")
+
+def test_configure_admin_defaults():
+    """Test configure_admin uses admin/admin defaults."""
+    result = configure_admin()
+    assert_equals(result['_grafana_admin_config']['username'], 'admin', "Default username should be admin")
+    assert_equals(result['_grafana_admin_config']['password'], 'admin', "Default password should be admin")
+    grafana_env = result['services']['grafana']['environment']
+    assert_equals(grafana_env['GF_SECURITY_ADMIN_USER'], 'admin', "Default GF_SECURITY_ADMIN_USER should be admin")
+    assert_equals(grafana_env['GF_SECURITY_ADMIN_PASSWORD'], 'admin', "Default GF_SECURITY_ADMIN_PASSWORD should be admin")
+    assert_equals(grafana_env['GF_AUTH_BASIC_ENABLED'], 'true', "Should enable basic auth by default")
+    print("  [PASS] test_configure_admin_defaults")
+
+# ============================================================================
+# process_accumulated_modifications - User Provisioning Tests
+# ============================================================================
+
+def test_process_accumulated_modifications_users():
+    """Test process_accumulated_modifications creates grafana-user-setup service."""
+    mods = [
+        {
+            '_grafana_user_specs': [
+                {'username': 'testuser', 'password': 'testpass', 'role': 'Editor'},
+            ],
+            '_target': 'grafana',
+        },
+    ]
+    result = process_accumulated_modifications(mods, '/tmp')
+
+    assert_true('services' in result, "Result should have services key")
+    assert_true('grafana-user-setup' in result['services'], "Should create grafana-user-setup service")
+
+    svc = result['services']['grafana-user-setup']
+    assert_equals(svc['image'], 'alpine:latest', "Should use alpine image")
+    assert_true('grafana' in svc['depends_on'], "Should depend on grafana")
+    assert_equals(svc['depends_on']['grafana']['condition'], 'service_healthy', "Should wait for healthy")
+    assert_equals(svc['restart'], 'on-failure', "Should restart on failure")
+
+    # Check script contains user
+    script = svc['command'][1]
+    assert_contains(script, 'testuser', "Script should contain username")
+    assert_contains(script, 'testpass', "Script should contain password")
+    assert_contains(script, 'Editor', "Script should contain role")
+    print("  [PASS] test_process_accumulated_modifications_users")
+
+def test_process_accumulated_modifications_users_deduplicates():
+    """Test process_accumulated_modifications deduplicates users by username."""
+    mods = [
+        {
+            '_grafana_user_specs': [
+                {'username': 'dupuser', 'password': 'pass1', 'role': 'Editor'},
+            ],
+            '_target': 'grafana',
+        },
+        {
+            '_grafana_user_specs': [
+                {'username': 'dupuser', 'password': 'pass2', 'role': 'Admin'},  # Duplicate
+            ],
+            '_target': 'grafana',
+        },
+        {
+            '_grafana_user_specs': [
+                {'username': 'uniqueuser', 'password': 'pass3'},
+            ],
+            '_target': 'grafana',
+        },
+    ]
+    result = process_accumulated_modifications(mods, '/tmp')
+
+    script = result['services']['grafana-user-setup']['command'][1]
+    # dupuser should appear in provisioning blocks but only once as a provisioning target
+    # uniqueuser should also appear
+    assert_contains(script, 'uniqueuser', "Should contain unique user")
+
+    # Count provisioning blocks - each user gets a "--- Provisioning user: X ---" header
+    dup_count = script.count('--- Provisioning user: dupuser ---')
+    assert_equals(dup_count, 1, "Duplicate user should be deduplicated to 1 block")
+    print("  [PASS] test_process_accumulated_modifications_users_deduplicates")
+
+def test_process_accumulated_modifications_admin_config():
+    """Test process_accumulated_modifications uses admin config from configure_admin."""
+    mods = [
+        {
+            '_grafana_admin_config': {'username': 'myadmin', 'password': 'mysecret'},
+            '_target': 'grafana',
+        },
+        {
+            '_grafana_user_specs': [
+                {'username': 'testuser', 'password': 'testpass'},
+            ],
+            '_target': 'grafana',
+        },
+    ]
+    result = process_accumulated_modifications(mods, '/tmp')
+
+    svc = result['services']['grafana-user-setup']
+    assert_equals(svc['environment']['ADMIN_USER'], 'myadmin', "Should use custom admin user")
+    assert_equals(svc['environment']['ADMIN_PASS'], 'mysecret', "Should use custom admin password")
+    print("  [PASS] test_process_accumulated_modifications_admin_config")
+
+def test_process_accumulated_modifications_admin_defaults():
+    """Test process_accumulated_modifications defaults to admin/admin when no configure_admin."""
+    mods = [
+        {
+            '_grafana_user_specs': [
+                {'username': 'testuser', 'password': 'testpass'},
+            ],
+            '_target': 'grafana',
+        },
+    ]
+    result = process_accumulated_modifications(mods, '/tmp')
+
+    svc = result['services']['grafana-user-setup']
+    assert_equals(svc['environment']['ADMIN_USER'], 'admin', "Should default to admin user")
+    assert_equals(svc['environment']['ADMIN_PASS'], 'admin', "Should default to admin password")
+    print("  [PASS] test_process_accumulated_modifications_admin_defaults")
+
+def test_process_accumulated_modifications_users_rbac():
+    """Test process_accumulated_modifications includes RBAC role assignment in script."""
+    mods = [
+        {
+            '_grafana_user_specs': [
+                {
+                    'username': 'rbacuser',
+                    'password': 'pass',
+                    'rbac_roles': ['fixed:dashboards:writer', 'fixed:alerting:reader'],
+                },
+            ],
+            '_target': 'grafana',
+        },
+    ]
+    result = process_accumulated_modifications(mods, '/tmp')
+
+    script = result['services']['grafana-user-setup']['command'][1]
+    assert_contains(script, 'fixed:dashboards:writer', "Script should contain first RBAC role")
+    assert_contains(script, 'fixed:alerting:reader', "Script should contain second RBAC role")
+    assert_contains(script, 'access-control/roles', "Script should query RBAC roles API")
+    print("  [PASS] test_process_accumulated_modifications_users_rbac")
+
+def test_process_accumulated_modifications_combined():
+    """Test process_accumulated_modifications handles both aggregator and users."""
+    mods = [
+        {
+            '_aggregator_api_groups': [
+                {'group': 'test.ext.grafana.com', 'version': 'v1alpha1'}
+            ],
+            '_target': 'grafana',
+        },
+        {
+            '_grafana_user_specs': [
+                {'username': 'testuser', 'password': 'testpass', 'role': 'Editor'},
+            ],
+            '_target': 'grafana',
+        },
+    ]
+    result = process_accumulated_modifications(mods, '/tmp')
+
+    # Should have both services
+    assert_true('aggregator-config' in result['services'], "Should have aggregator-config service")
+    assert_true('grafana-user-setup' in result['services'], "Should have grafana-user-setup service")
+    assert_true('grafana' in result['services'], "Should have grafana service (from aggregator depends_on)")
+    assert_equals(result['_target'], 'grafana', "Target should be grafana")
+
+    # Verify aggregator still works
+    agg_script = result['services']['aggregator-config']['command'][1]
+    assert_contains(agg_script, 'test.ext.grafana.com', "Aggregator should contain group")
+
+    # Verify user setup works
+    user_script = result['services']['grafana-user-setup']['command'][1]
+    assert_contains(user_script, 'testuser', "User setup should contain username")
+    print("  [PASS] test_process_accumulated_modifications_combined")
+
+def test_process_accumulated_modifications_users_only_no_aggregator():
+    """Test process_accumulated_modifications with users but no aggregator."""
+    mods = [
+        {
+            '_grafana_user_specs': [
+                {'username': 'onlyuser', 'password': 'pass', 'role': 'Admin'},
+            ],
+            '_target': 'grafana',
+        },
+    ]
+    result = process_accumulated_modifications(mods, '/tmp')
+
+    assert_true('grafana-user-setup' in result['services'], "Should have grafana-user-setup")
+    assert_true('aggregator-config' not in result.get('services', {}), "Should NOT have aggregator-config")
+    assert_equals(result['_target'], 'grafana', "Target should be grafana")
+    print("  [PASS] test_process_accumulated_modifications_users_only_no_aggregator")
+
+# ============================================================================
 # Run All Tests
 # ============================================================================
 
@@ -448,7 +921,7 @@ def run_tests():
     test_register_aggregator_config_returns_marker()
     test_register_aggregator_config_preserves_api_groups()
 
-    print("\n=== process_accumulated_modifications Tests ===")
+    print("\n=== process_accumulated_modifications (Aggregator) Tests ===")
     test_process_accumulated_modifications_single()
     test_process_accumulated_modifications_grafana_depends_on()
     test_process_accumulated_modifications_multiple()
@@ -456,6 +929,24 @@ def run_tests():
     test_process_accumulated_modifications_default_host_port()
     test_process_accumulated_modifications_custom_host_port()
     test_process_accumulated_modifications_empty()
+
+    print("\n=== provision_users Tests ===")
+    test_provision_users_returns_marker()
+    test_provision_users_preserves_specs()
+    test_provision_users_multiple_users()
+
+    print("\n=== configure_admin Tests ===")
+    test_configure_admin_returns_marker_and_override()
+    test_configure_admin_defaults()
+
+    print("\n=== process_accumulated_modifications (Users) Tests ===")
+    test_process_accumulated_modifications_users()
+    test_process_accumulated_modifications_users_deduplicates()
+    test_process_accumulated_modifications_admin_config()
+    test_process_accumulated_modifications_admin_defaults()
+    test_process_accumulated_modifications_users_rbac()
+    test_process_accumulated_modifications_combined()
+    test_process_accumulated_modifications_users_only_no_aggregator()
 
     print("\n" + "=" * 50)
     print("All tests passed!")

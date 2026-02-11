@@ -9,6 +9,7 @@ A Grafana development environment with plugin support, dashboard provisioning, a
 - **Dashboard Provisioning**: Register dashboard directories
 - **API Aggregation**: Integration with k3s-apiserver for Kubernetes APIs
 - **Database Support**: Auto-wires to MySQL when present
+- **User Provisioning**: Create users with org roles and RBAC assignments via API
 
 ## Services
 
@@ -146,6 +147,69 @@ grafana.register_aggregator_config(api_groups=[
 ])
 ```
 
+### `provision_users(user_specs)`
+
+Declare users to provision via the Grafana HTTP API after startup. Multiple composables can call this helper — all user specs are accumulated and provisioned by a single `grafana-user-setup` service.
+
+**Parameters:**
+- `user_specs`: List of dicts, each with:
+  - `username` (required): Login name
+  - `password` (required): User password
+  - `role` (optional): Org role — `Viewer`, `Editor`, or `Admin` (default: `Viewer`)
+  - `rbac_roles` (optional): List of fine-grained RBAC role names (requires Grafana Enterprise)
+  - `email` (optional): Email address
+  - `name` (optional): Display name
+
+**Example:**
+```python
+grafana = cc.use('grafana')
+
+def cc_export(cc):
+    return cc.create(
+        'my-app',
+        os.path.dirname(__file__) + '/docker-compose.yaml',
+        grafana,
+        modifications=[
+            grafana.provision_users(user_specs=[
+                {
+                    'username': 'dev-user',
+                    'password': 'dev-pass',
+                    'role': 'Editor',
+                },
+                {
+                    'username': 'viewer',
+                    'password': 'viewer-pass',
+                    'role': 'Viewer',
+                    'rbac_roles': ['fixed:dashboards:reader'],
+                },
+            ]),
+        ],
+    )
+```
+
+**How it works:**
+- Creates a `grafana-user-setup` service that runs after Grafana is healthy
+- Uses the Grafana admin API with basic auth to create users and assign roles
+- Idempotent: skips creation if a user already exists, still updates roles
+
+### `configure_admin(username, password)`
+
+Set admin credentials used by the user provisioning service for API authentication. Also sets `GF_SECURITY_ADMIN_USER` and `GF_SECURITY_ADMIN_PASSWORD` on the Grafana service.
+
+**Parameters:**
+- `username`: Admin username (default: `admin`)
+- `password`: Admin password (default: `admin`)
+
+If not called, the provisioning service defaults to `admin`/`admin`.
+
+**Example:**
+```python
+modifications=[
+    grafana.configure_admin(username='myadmin', password='secret'),
+    grafana.provision_users(user_specs=[...]),
+]
+```
+
 ## Wire-When Rules
 
 This composable automatically wires to other composables when present:
@@ -222,6 +286,36 @@ def cc_export():
         modifications=[
             grafana.register_aggregator_config(api_groups=[
                 {'group': 'myapp.grafana.com', 'version': 'v1'},
+            ]),
+        ],
+    )
+```
+
+### With User Provisioning
+
+```python
+grafana = cc.use('grafana')
+
+def cc_export(cc):
+    return cc.create(
+        'my-app',
+        os.path.dirname(__file__) + '/docker-compose.yaml',
+        grafana,
+        modifications=[
+            grafana.configure_admin(username='admin', password='grafana'),
+            grafana.provision_users(user_specs=[
+                {
+                    'username': 'developer',
+                    'password': 'dev123',
+                    'role': 'Editor',
+                    'email': 'dev@example.com',
+                },
+                {
+                    'username': 'readonly',
+                    'password': 'view123',
+                    'role': 'Viewer',
+                    'rbac_roles': ['fixed:dashboards:reader'],
+                },
             ]),
         ],
     )
