@@ -68,6 +68,58 @@ and merges into a single aggregator-config service.
 
 These error cases are validated at runtime when the helper is called with invalid input.
 
+### passthrough_env() Helper
+
+Tests for the host environment variable forwarding helper (accumulating pattern).
+
+**passthrough_env Tests:**
+- ✓ Returns marker dict with `_grafana_passthrough_env` key
+- ✓ Accepts empty list
+
+**process_accumulated_modifications Tests:**
+- ✓ Resolves passthrough env to `'KEY': '$KEY'` mappings
+- ✓ Deduplicates across multiple callers
+- ✓ Sorts output alphabetically
+
+### register_environment() Helper
+
+Tests for the Grafana environment variable setter (accumulating pattern).
+
+**register_environment Tests:**
+- ✓ Returns marker dict with `_grafana_environment` key
+- ✓ Preserves multiple variables
+
+**process_accumulated_modifications Tests:**
+- ✓ Resolves registered environment vars
+- ✓ Last-writer-wins for duplicate keys
+- ✓ Merges vars from multiple callers
+
+### install_plugins() Helper
+
+Tests for the Grafana plugin installer (accumulating pattern).
+
+**install_plugins Tests:**
+- ✓ Returns marker dict with `_grafana_install_plugins` key
+- ✓ Preserves multiple plugin URLs
+
+**process_accumulated_modifications Tests:**
+- ✓ Sets `GF_INSTALL_PLUGINS` as comma-separated string
+- ✓ Deduplicates across multiple callers
+- ✓ Handles URL-based plugin specs
+
+### Combined Accumulation Tests
+
+- ✓ All three env helpers work together (passthrough + register + install)
+- ✓ Env helpers work alongside user provisioning
+- ✓ Env-only modifications work without aggregator or users
+
+### Tiltfile Structure Tests (New Helpers)
+
+- ✓ Source Tiltfile defines `passthrough_env(cc, var_names)`
+- ✓ Source Tiltfile defines `register_environment(cc, env_dict)`
+- ✓ Source Tiltfile defines `install_plugins(cc, plugin_urls)`
+- ✓ `process_accumulated_modifications()` handles all three marker types
+
 ## Test Structure
 
 The test suite follows the pattern established by `composables/k3s-apiserver/test/`:

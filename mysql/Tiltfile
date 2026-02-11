@@ -28,7 +28,7 @@ def _create_databases_impl(database_names=[], orchestrator_dir=None):
     # Generate SQL script to create databases
     sql_commands = ["-- Auto-generated MySQL init script"]
     for db_name in database_names:
-        sql_commands.append("CREATE DATABASE IF NOT EXISTS `" + db_name + "`;")
+        sql_commands.append("CREATE DATABASE IF NOT EXISTS `" + db_name + "` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;")
         sql_commands.append("GRANT ALL PRIVILEGES ON `" + db_name + "`.* TO 'user'@'%';")
 
     sql_commands.append("FLUSH PRIVILEGES;")

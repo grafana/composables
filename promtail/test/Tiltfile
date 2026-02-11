@@ -1,0 +1,167 @@
+# Tests for promtail composable
+# Run with: tilt ci (from this directory)
+
+# ============================================================================
+# Function Definitions (copied from parent for testing)
+# ============================================================================
+
+def register_config(config_path):
+    """Mount a custom promtail configuration file (test copy without cc param)."""
+    if not config_path:
+        fail("config_path cannot be empty")
+    return {
+        'services': {
+            'promtail': {
+                'volumes': [
+                    config_path + ':/etc/promtail/config.yml',
+                ],
+            },
+        },
+    }
+
+# ============================================================================
+# Test Helpers
+# ============================================================================
+
+def assert_equals(actual, expected, msg=""):
+    if actual != expected:
+        fail_msg = "Expected '{}', got '{}'".format(expected, actual)
+        if msg:
+            fail_msg = msg + ": " + fail_msg
+        fail(fail_msg)
+
+def assert_true(condition, msg=""):
+    if not condition:
+        fail(msg if msg else "Assertion failed")
+
+def assert_in(item, collection, msg=""):
+    if item not in collection:
+        fail_msg = "'{}' not in '{}'".format(item, collection)
+        if msg:
+            fail_msg = msg + ": " + fail_msg
+        fail(fail_msg)
+
+def assert_contains(haystack, needle, msg=""):
+    """Check if needle substring is in haystack string."""
+    if needle not in haystack:
+        fail_msg = "'{}' not found in '{}'".format(needle, haystack)
+        if msg:
+            fail_msg = msg + ": " + fail_msg
+        fail(fail_msg)
+
+# ============================================================================
+# cc_export Tests
+# ============================================================================
+
+def test_compose_file_exists():
+    """Test promtail.yaml compose file exists."""
+    compose_path = os.path.dirname(__file__) + '/../promtail.yaml'
+    content = str(read_file(compose_path))
+    assert_true(len(content) > 0, "promtail.yaml should not be empty")
+    print("  [PASS] test_compose_file_exists")
+
+def test_compose_has_promtail_service():
+    """Test promtail.yaml has promtail service defined."""
+    compose_path = os.path.dirname(__file__) + '/../promtail.yaml'
+    content = str(read_file(compose_path))
+    assert_in('promtail:', content, "Should have promtail service")
+    print("  [PASS] test_compose_has_promtail_service")
+
+# ============================================================================
+# Tiltfile Structure Tests
+# ============================================================================
+
+def test_tiltfile_has_cc_export():
+    """Test Tiltfile exports cc_export function."""
+    tiltfile_path = os.path.dirname(__file__) + '/../Tiltfile'
+    content = str(read_file(tiltfile_path))
+    assert_in('def cc_export(cc):', content, "Should define cc_export(cc) function")
+    assert_in("'promtail'", content, "Should use 'promtail' as name")
+    assert_in('promtail.yaml', content, "Should reference promtail.yaml")
+    print("  [PASS] test_tiltfile_has_cc_export")
+
+def test_tiltfile_has_cc_wire_when():
+    """Test Tiltfile exports cc_wire_when function."""
+    tiltfile_path = os.path.dirname(__file__) + '/../Tiltfile'
+    content = str(read_file(tiltfile_path))
+    assert_in('def cc_wire_when(cc):', content, "Should define cc_wire_when(cc) function")
+    assert_in("'loki'", content, "Should wire to loki")
+    print("  [PASS] test_tiltfile_has_cc_wire_when")
+
+def test_tiltfile_has_register_config():
+    """Test Tiltfile exports register_config function."""
+    tiltfile_path = os.path.dirname(__file__) + '/../Tiltfile'
+    content = str(read_file(tiltfile_path))
+    assert_in('def register_config(cc, config_path):', content,
+              "Should define register_config(cc, config_path) function")
+    assert_in('/etc/promtail/config.yml', content,
+              "Should mount to /etc/promtail/config.yml")
+    print("  [PASS] test_tiltfile_has_register_config")
+
+def test_tiltfile_has_container_runtime_detection():
+    """Test Tiltfile detects container runtime (Docker vs Podman)."""
+    tiltfile_path = os.path.dirname(__file__) + '/../Tiltfile'
+    content = str(read_file(tiltfile_path))
+    assert_in('_detect_container_runtime', content,
+              "Should have container runtime detection")
+    assert_in('podman', content, "Should handle podman")
+    print("  [PASS] test_tiltfile_has_container_runtime_detection")
+
+# ============================================================================
+# register_config Tests
+# ============================================================================
+
+def test_register_config_returns_compose_overrides():
+    """Test register_config returns compose_overrides dict."""
+    result = register_config('/path/to/my-promtail.yaml')
+    assert_true('services' in result, "Result should have services key")
+    assert_true('promtail' in result['services'], "Should target promtail service")
+    assert_true('volumes' in result['services']['promtail'], "Should have volumes")
+    print("  [PASS] test_register_config_returns_compose_overrides")
+
+def test_register_config_mounts_to_correct_path():
+    """Test register_config mounts to /etc/promtail/config.yml."""
+    result = register_config('/my/custom/promtail-config.yaml')
+    volumes = result['services']['promtail']['volumes']
+    assert_equals(len(volumes), 1, "Should have exactly 1 volume mount")
+    assert_equals(volumes[0], '/my/custom/promtail-config.yaml:/etc/promtail/config.yml',
+                  "Should mount config to /etc/promtail/config.yml")
+    print("  [PASS] test_register_config_mounts_to_correct_path")
+
+def test_register_config_preserves_full_path():
+    """Test register_config preserves the full source path."""
+    result = register_config('/home/user/project/config/promtail-config.yaml')
+    volume = result['services']['promtail']['volumes'][0]
+    assert_true(volume.startswith('/home/user/project/config/promtail-config.yaml:'),
+                "Should preserve full source path")
+    print("  [PASS] test_register_config_preserves_full_path")
+
+# ============================================================================
+# Run All Tests
+# ============================================================================
+
+def run_tests():
+    print("\n=== Promtail Composable Unit Tests ===")
+    test_compose_file_exists()
+    test_compose_has_promtail_service()
+
+    print("\n=== Tiltfile Structure Tests ===")
+    test_tiltfile_has_cc_export()
+    test_tiltfile_has_cc_wire_when()
+    test_tiltfile_has_register_config()
+    test_tiltfile_has_container_runtime_detection()
+
+    print("\n=== register_config Tests ===")
+    test_register_config_returns_compose_overrides()
+    test_register_config_mounts_to_correct_path()
+    test_register_config_preserves_full_path()
+
+    print("\n" + "=" * 50)
+    print("All tests passed!")
+    print("=" * 50)
+
+# Run tests
+run_tests()
+
+# Dummy resource to satisfy tilt ci
+local_resource('tests', cmd='echo "Tests completed"', auto_init=False)

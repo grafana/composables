@@ -62,26 +62,22 @@ def register_scrape_config(cc, scrape_configs):
     Returns:
         Dict with _prometheus_scrape_config marker for compose_composer to process
 
-    Example:
-        prometheus = cc_import(
-            name='prometheus',
-            url='...',
-        )
+    Each scrape_config dict supports:
+        - job_name: str (required)
+        - static_configs: list of {'targets': [...]} dicts
+        - metrics_path: str (optional, default '/metrics')
+        - scrape_interval: str (optional, e.g. '10s')
+        - scrape_timeout: str (optional, e.g. '5s')
 
-        def cc_export():
-            return cc_create(
-                'my-app',
-                ...,
-                prometheus,
-                modifications=[
-                    prometheus.register_scrape_config([
-                        {
-                            'job_name': 'my-service',
-                            'static_configs': [{'targets': ['my-service:8080']}],
-                        },
-                    ]),
-                ],
-            )
+    Example:
+        prometheus.register_scrape_config([
+            {
+                'job_name': 'my-service',
+                'static_configs': [{'targets': ['my-service:8080']}],
+                'scrape_interval': '10s',
+                'scrape_timeout': '5s',
+            },
+        ])
     """
     return {
         '_prometheus_scrape_config': scrape_configs,
@@ -160,6 +156,10 @@ def process_accumulated_modifications(all_modifications, orchestrator_dir):
         if 'job_name' not in sc:
             fail('scrape_config must have "job_name" field: ' + str(sc))
         config_lines.append('  - job_name: ' + sc['job_name'])
+        if sc.get('scrape_interval'):
+            config_lines.append('    scrape_interval: ' + sc['scrape_interval'])
+        if sc.get('scrape_timeout'):
+            config_lines.append('    scrape_timeout: ' + sc['scrape_timeout'])
         if sc.get('static_configs'):
             config_lines.append('    static_configs:')
             for static in sc['static_configs']:
