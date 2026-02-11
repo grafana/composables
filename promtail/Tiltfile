@@ -2,8 +2,9 @@
 # Provides Promtail log collector that ships logs to Loki.
 #
 # Exports:
-#   cc_export(cc)      - Returns plugin struct for compose_composer
-#   cc_wire_when(cc)  - Auto-wire to Loki when loaded together
+#   cc_export(cc)            - Returns plugin struct for compose_composer
+#   cc_wire_when(cc)        - Auto-wire to Loki when loaded together
+#   register_config(cc, ...) - Mount a custom promtail config file
 
 def _detect_container_runtime():
     """Detect if running Docker or Podman and return appropriate volume mounts."""
@@ -39,6 +40,33 @@ def cc_export(cc):
             },
         },
     )
+
+def register_config(cc, config_path):
+    """
+    Mount a custom promtail configuration file.
+
+    Args:
+        cc: Orchestrator's cc struct (injected by compose_composer)
+        config_path: Absolute path to the promtail config YAML file
+
+    Returns:
+        Dict with compose_overrides to mount the config at /etc/promtail/config.yml
+
+    Example:
+        promtail.register_config(repo_root + '/config/promtail-config.yaml')
+    """
+    if not config_path:
+        fail("config_path cannot be empty")
+
+    return {
+        'services': {
+            'promtail': {
+                'volumes': [
+                    config_path + ':/etc/promtail/config.yml',
+                ],
+            },
+        },
+    }
 
 def cc_wire_when(cc):
     """

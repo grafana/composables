@@ -210,6 +210,57 @@ modifications=[
 ]
 ```
 
+### `passthrough_env(var_names)`
+
+Forward host environment variables into the Grafana container. This is an **accumulating helper** — multiple composables can call it, and all variable names are collected and deduplicated.
+
+Each variable becomes a `'KEY': '$KEY'` mapping in the Grafana service's environment block.
+
+**Parameters:**
+- `var_names`: List of environment variable names to forward
+
+**Example:**
+```python
+grafana.passthrough_env([
+    'ANTHROPIC_API_KEY',
+    'TAVILY_API_KEY',
+    'MY_SECRET_TOKEN',
+])
+```
+
+### `register_environment(env_dict)`
+
+Set environment variables on the Grafana container. This is an **accumulating helper** — multiple composables can call it, and all environment dicts are merged (last-writer-wins for duplicate keys).
+
+**Parameters:**
+- `env_dict`: Dict of environment variable name to value mappings
+
+**Example:**
+```python
+grafana.register_environment({
+    'GF_AUTH_ANONYMOUS_ENABLED': 'true',
+    'GF_LOG_LEVEL': 'debug',
+    'NODE_ENV': 'development',
+})
+```
+
+### `install_plugins(plugin_urls)`
+
+Install Grafana plugins from the marketplace or external URLs. This is an **accumulating helper** — multiple composables can call it, and all plugin URLs are collected, deduplicated, and set as the `GF_INSTALL_PLUGINS` environment variable.
+
+**Parameters:**
+- `plugin_urls`: List of plugin identifiers, each either:
+  - A marketplace plugin ID (e.g., `grafana-clickhouse-datasource`)
+  - A URL with plugin name (e.g., `https://example.com/plugin.zip;plugin-name`)
+
+**Example:**
+```python
+grafana.install_plugins([
+    'grafana-clickhouse-datasource',
+    'https://example.com/my-plugin-1.0.zip;my-plugin',
+])
+```
+
 ## Wire-When Rules
 
 This composable automatically wires to other composables when present:

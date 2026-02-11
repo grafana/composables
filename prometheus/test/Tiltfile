@@ -189,6 +189,34 @@ def test_process_accumulated_adds_self_scrape():
     assert_in("job_name: prometheus", content, "Should have prometheus job")
     print("  [PASS] test_process_accumulated_adds_self_scrape")
 
+def test_process_accumulated_supports_scrape_interval():
+    """Test process_accumulated_modifications supports scrape_interval field."""
+    tiltfile_path = os.path.dirname(__file__) + '/../Tiltfile'
+    content = str(read_file(tiltfile_path))
+    assert_in("'scrape_interval'", content,
+              "Should check for scrape_interval in scrape config")
+    assert_in('scrape_interval:', content,
+              "Should write scrape_interval to generated config")
+    print("  [PASS] test_process_accumulated_supports_scrape_interval")
+
+def test_process_accumulated_supports_scrape_timeout():
+    """Test process_accumulated_modifications supports scrape_timeout field."""
+    tiltfile_path = os.path.dirname(__file__) + '/../Tiltfile'
+    content = str(read_file(tiltfile_path))
+    assert_in("'scrape_timeout'", content,
+              "Should check for scrape_timeout in scrape config")
+    assert_in('scrape_timeout:', content,
+              "Should write scrape_timeout to generated config")
+    print("  [PASS] test_process_accumulated_supports_scrape_timeout")
+
+def test_register_scrape_config_docstring_mentions_interval_timeout():
+    """Test register_scrape_config docstring documents scrape_interval/scrape_timeout."""
+    tiltfile_path = os.path.dirname(__file__) + '/../Tiltfile'
+    content = str(read_file(tiltfile_path))
+    assert_in('scrape_interval', content, "Docstring should mention scrape_interval")
+    assert_in('scrape_timeout', content, "Docstring should mention scrape_timeout")
+    print("  [PASS] test_register_scrape_config_docstring_mentions_interval_timeout")
+
 # ============================================================================
 # Run All Tests
 # ============================================================================
@@ -217,6 +245,9 @@ def run_tests():
     test_process_accumulated_handles_scrape_config()
     test_process_accumulated_generates_prometheus_yml()
     test_process_accumulated_adds_self_scrape()
+    test_process_accumulated_supports_scrape_interval()
+    test_process_accumulated_supports_scrape_timeout()
+    test_register_scrape_config_docstring_mentions_interval_timeout()
 
     print("\n" + "=" * 50)
     print("All tests passed!")

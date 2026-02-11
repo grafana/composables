@@ -328,6 +328,36 @@ echo "=== User provisioning complete ==="
     }
 
 
+def passthrough_env(var_names):
+    """Forward host environment variables into Grafana (test copy without cc param)."""
+    if type(var_names) != 'list':
+        fail("var_names must be a list, got: " + str(type(var_names)))
+    return {
+        '_grafana_passthrough_env': var_names,
+        '_target': 'grafana',
+    }
+
+
+def register_environment(env_dict):
+    """Set environment variables on the Grafana container (test copy without cc param)."""
+    if type(env_dict) != 'dict':
+        fail("env_dict must be a dict, got: " + str(type(env_dict)))
+    return {
+        '_grafana_environment': env_dict,
+        '_target': 'grafana',
+    }
+
+
+def install_plugins(plugin_urls):
+    """Install Grafana plugins (test copy without cc param)."""
+    if type(plugin_urls) != 'list':
+        fail("plugin_urls must be a list, got: " + str(type(plugin_urls)))
+    return {
+        '_grafana_install_plugins': plugin_urls,
+        '_target': 'grafana',
+    }
+
+
 def process_accumulated_modifications(all_modifications, orchestrator_dir):
     """
     Extract accumulated requirements from all modifications and generate services.
@@ -380,6 +410,91 @@ def process_accumulated_modifications(all_modifications, orchestrator_dir):
                 result['services'][svc_name] = svc_config
         else:
             result = user_mod
+
+    # --- Pass 3: Extract passthrough env vars ---
+    all_passthrough_vars = []
+    seen_vars = {}
+
+    for mod in all_modifications:
+        if type(mod) != 'dict':
+            continue
+        if '_grafana_passthrough_env' in mod:
+            var_names = mod['_grafana_passthrough_env']
+            if type(var_names) == 'list':
+                for name in var_names:
+                    if name and name not in seen_vars:
+                        seen_vars[name] = True
+                        all_passthrough_vars.append(name)
+
+    if all_passthrough_vars:
+        env_map = {}
+        for name in sorted(all_passthrough_vars):
+            env_map[name] = '$' + name
+
+        if 'services' in result:
+            if 'grafana' in result['services']:
+                if 'environment' in result['services']['grafana']:
+                    for k, v in env_map.items():
+                        result['services']['grafana']['environment'][k] = v
+                else:
+                    result['services']['grafana']['environment'] = env_map
+            else:
+                result['services']['grafana'] = {'environment': env_map}
+        else:
+            result = {'services': {'grafana': {'environment': env_map}}}
+
+    # --- Pass 4: Extract registered environment vars ---
+    all_env_vars = {}
+
+    for mod in all_modifications:
+        if type(mod) != 'dict':
+            continue
+        if '_grafana_environment' in mod:
+            env_dict = mod['_grafana_environment']
+            if type(env_dict) == 'dict':
+                for k, v in env_dict.items():
+                    all_env_vars[k] = v
+
+    if all_env_vars:
+        if 'services' in result:
+            if 'grafana' in result['services']:
+                if 'environment' in result['services']['grafana']:
+                    for k, v in all_env_vars.items():
+                        result['services']['grafana']['environment'][k] = v
+                else:
+                    result['services']['grafana']['environment'] = all_env_vars
+            else:
+                result['services']['grafana'] = {'environment': all_env_vars}
+        else:
+            result = {'services': {'grafana': {'environment': all_env_vars}}}
+
+    # --- Pass 5: Extract install_plugins ---
+    all_install_plugins = []
+    seen_plugins = {}
+
+    for mod in all_modifications:
+        if type(mod) != 'dict':
+            continue
+        if '_grafana_install_plugins' in mod:
+            plugin_urls = mod['_grafana_install_plugins']
+            if type(plugin_urls) == 'list':
+                for url in plugin_urls:
+                    if url and url not in seen_plugins:
+                        seen_plugins[url] = True
+                        all_install_plugins.append(url)
+
+    if all_install_plugins:
+        install_val = ','.join(all_install_plugins)
+        if 'services' in result:
+            if 'grafana' in result['services']:
+                if 'environment' in result['services']['grafana']:
+                    result['services']['grafana']['environment']['GF_INSTALL_PLUGINS'] = install_val
+                else:
+                    result['services']['grafana']['environment'] = {'GF_INSTALL_PLUGINS': install_val}
+            else:
+                result['services']['grafana'] = {'environment': {'GF_INSTALL_PLUGINS': install_val}}
+        else:
+            result = {'services': {'grafana': {'environment': {'GF_INSTALL_PLUGINS': install_val}}}}
 
     if not result:
         return {}
@@ -906,6 +1021,306 @@ def test_process_accumulated_modifications_users_only_no_aggregator():
     print("  [PASS] test_process_accumulated_modifications_users_only_no_aggregator")
 
 # ============================================================================
+# passthrough_env Tests
+# ============================================================================
+
+def test_passthrough_env_returns_marker():
+    """Test passthrough_env returns a marker dict."""
+    result = passthrough_env(['MY_KEY', 'OTHER_KEY'])
+    assert_true('_grafana_passthrough_env' in result, "Should have _grafana_passthrough_env marker")
+    assert_equals(result['_target'], 'grafana', "Target should be grafana")
+    assert_equals(result['_grafana_passthrough_env'], ['MY_KEY', 'OTHER_KEY'], "Should preserve var names")
+    print("  [PASS] test_passthrough_env_returns_marker")
+
+def test_passthrough_env_empty_list():
+    """Test passthrough_env with empty list."""
+    result = passthrough_env([])
+    assert_equals(result['_grafana_passthrough_env'], [], "Should accept empty list")
+    print("  [PASS] test_passthrough_env_empty_list")
+
+def test_process_accumulated_passthrough_env():
+    """Test process_accumulated_modifications resolves passthrough env."""
+    mods = [
+        {
+            '_grafana_passthrough_env': ['API_KEY', 'SECRET_KEY'],
+            '_target': 'grafana',
+        },
+    ]
+    result = process_accumulated_modifications(mods, '/tmp')
+
+    env = result['services']['grafana']['environment']
+    assert_equals(env['API_KEY'], '$API_KEY', "Should set API_KEY to $API_KEY")
+    assert_equals(env['SECRET_KEY'], '$SECRET_KEY', "Should set SECRET_KEY to $SECRET_KEY")
+    print("  [PASS] test_process_accumulated_passthrough_env")
+
+def test_process_accumulated_passthrough_env_deduplicates():
+    """Test process_accumulated_modifications deduplicates passthrough env vars."""
+    mods = [
+        {'_grafana_passthrough_env': ['KEY_A', 'KEY_B'], '_target': 'grafana'},
+        {'_grafana_passthrough_env': ['KEY_B', 'KEY_C'], '_target': 'grafana'},
+    ]
+    result = process_accumulated_modifications(mods, '/tmp')
+
+    env = result['services']['grafana']['environment']
+    assert_true('KEY_A' in env, "Should have KEY_A")
+    assert_true('KEY_B' in env, "Should have KEY_B (deduplicated)")
+    assert_true('KEY_C' in env, "Should have KEY_C")
+    print("  [PASS] test_process_accumulated_passthrough_env_deduplicates")
+
+def test_process_accumulated_passthrough_env_sorted():
+    """Test process_accumulated_modifications sorts passthrough env vars."""
+    mods = [
+        {'_grafana_passthrough_env': ['ZEBRA', 'APPLE'], '_target': 'grafana'},
+    ]
+    result = process_accumulated_modifications(mods, '/tmp')
+
+    env = result['services']['grafana']['environment']
+    assert_true('APPLE' in env, "Should have APPLE")
+    assert_true('ZEBRA' in env, "Should have ZEBRA")
+    print("  [PASS] test_process_accumulated_passthrough_env_sorted")
+
+# ============================================================================
+# register_environment Tests
+# ============================================================================
+
+def test_register_environment_returns_marker():
+    """Test register_environment returns a marker dict."""
+    result = register_environment({'GF_LOG_LEVEL': 'debug'})
+    assert_true('_grafana_environment' in result, "Should have _grafana_environment marker")
+    assert_equals(result['_target'], 'grafana', "Target should be grafana")
+    assert_equals(result['_grafana_environment']['GF_LOG_LEVEL'], 'debug', "Should preserve env value")
+    print("  [PASS] test_register_environment_returns_marker")
+
+def test_register_environment_multiple_vars():
+    """Test register_environment preserves multiple vars."""
+    env = {'GF_LOG_LEVEL': 'debug', 'NODE_ENV': 'development'}
+    result = register_environment(env)
+    assert_equals(len(result['_grafana_environment']), 2, "Should have 2 vars")
+    print("  [PASS] test_register_environment_multiple_vars")
+
+def test_process_accumulated_register_environment():
+    """Test process_accumulated_modifications resolves register_environment."""
+    mods = [
+        {
+            '_grafana_environment': {
+                'GF_LOG_LEVEL': 'debug',
+                'NODE_ENV': 'development',
+            },
+            '_target': 'grafana',
+        },
+    ]
+    result = process_accumulated_modifications(mods, '/tmp')
+
+    env = result['services']['grafana']['environment']
+    assert_equals(env['GF_LOG_LEVEL'], 'debug', "Should set GF_LOG_LEVEL")
+    assert_equals(env['NODE_ENV'], 'development', "Should set NODE_ENV")
+    print("  [PASS] test_process_accumulated_register_environment")
+
+def test_process_accumulated_register_environment_last_writer_wins():
+    """Test register_environment uses last-writer-wins for duplicate keys."""
+    mods = [
+        {'_grafana_environment': {'GF_LOG_LEVEL': 'info'}, '_target': 'grafana'},
+        {'_grafana_environment': {'GF_LOG_LEVEL': 'debug'}, '_target': 'grafana'},
+    ]
+    result = process_accumulated_modifications(mods, '/tmp')
+
+    env = result['services']['grafana']['environment']
+    assert_equals(env['GF_LOG_LEVEL'], 'debug', "Last writer should win")
+    print("  [PASS] test_process_accumulated_register_environment_last_writer_wins")
+
+def test_process_accumulated_register_environment_merges():
+    """Test register_environment merges vars from multiple callers."""
+    mods = [
+        {'_grafana_environment': {'GF_LOG_LEVEL': 'debug'}, '_target': 'grafana'},
+        {'_grafana_environment': {'NODE_ENV': 'development'}, '_target': 'grafana'},
+    ]
+    result = process_accumulated_modifications(mods, '/tmp')
+
+    env = result['services']['grafana']['environment']
+    assert_true('GF_LOG_LEVEL' in env, "Should have GF_LOG_LEVEL from first caller")
+    assert_true('NODE_ENV' in env, "Should have NODE_ENV from second caller")
+    print("  [PASS] test_process_accumulated_register_environment_merges")
+
+# ============================================================================
+# install_plugins Tests
+# ============================================================================
+
+def test_install_plugins_returns_marker():
+    """Test install_plugins returns a marker dict."""
+    result = install_plugins(['grafana-clickhouse-datasource'])
+    assert_true('_grafana_install_plugins' in result, "Should have _grafana_install_plugins marker")
+    assert_equals(result['_target'], 'grafana', "Target should be grafana")
+    assert_equals(result['_grafana_install_plugins'], ['grafana-clickhouse-datasource'], "Should preserve plugin list")
+    print("  [PASS] test_install_plugins_returns_marker")
+
+def test_install_plugins_multiple():
+    """Test install_plugins with multiple plugins."""
+    plugins = ['plugin-a', 'plugin-b', 'https://example.com/plugin-c.zip;plugin-c']
+    result = install_plugins(plugins)
+    assert_equals(len(result['_grafana_install_plugins']), 3, "Should have 3 plugins")
+    print("  [PASS] test_install_plugins_multiple")
+
+def test_process_accumulated_install_plugins():
+    """Test process_accumulated_modifications resolves install_plugins."""
+    mods = [
+        {
+            '_grafana_install_plugins': ['plugin-a', 'plugin-b'],
+            '_target': 'grafana',
+        },
+    ]
+    result = process_accumulated_modifications(mods, '/tmp')
+
+    env = result['services']['grafana']['environment']
+    assert_equals(env['GF_INSTALL_PLUGINS'], 'plugin-a,plugin-b',
+                  "Should set GF_INSTALL_PLUGINS as comma-separated string")
+    print("  [PASS] test_process_accumulated_install_plugins")
+
+def test_process_accumulated_install_plugins_deduplicates():
+    """Test install_plugins deduplicates across multiple callers."""
+    mods = [
+        {'_grafana_install_plugins': ['plugin-a', 'plugin-b'], '_target': 'grafana'},
+        {'_grafana_install_plugins': ['plugin-b', 'plugin-c'], '_target': 'grafana'},
+    ]
+    result = process_accumulated_modifications(mods, '/tmp')
+
+    plugins = result['services']['grafana']['environment']['GF_INSTALL_PLUGINS']
+    assert_equals(plugins, 'plugin-a,plugin-b,plugin-c',
+                  "Should deduplicate plugins across callers")
+    print("  [PASS] test_process_accumulated_install_plugins_deduplicates")
+
+def test_process_accumulated_install_plugins_with_urls():
+    """Test install_plugins handles URL-based plugin specs."""
+    mods = [
+        {
+            '_grafana_install_plugins': [
+                'grafana-clickhouse-datasource',
+                'https://example.com/my-plugin-1.0.zip;my-plugin',
+            ],
+            '_target': 'grafana',
+        },
+    ]
+    result = process_accumulated_modifications(mods, '/tmp')
+
+    plugins = result['services']['grafana']['environment']['GF_INSTALL_PLUGINS']
+    assert_contains(plugins, 'grafana-clickhouse-datasource', "Should contain marketplace plugin")
+    assert_contains(plugins, 'https://example.com/my-plugin-1.0.zip;my-plugin', "Should contain URL plugin")
+    print("  [PASS] test_process_accumulated_install_plugins_with_urls")
+
+# ============================================================================
+# Combined Accumulation Tests
+# ============================================================================
+
+def test_process_accumulated_all_env_types_combined():
+    """Test process_accumulated_modifications handles passthrough + register + install together."""
+    mods = [
+        {'_grafana_passthrough_env': ['API_KEY'], '_target': 'grafana'},
+        {'_grafana_environment': {'GF_LOG_LEVEL': 'debug'}, '_target': 'grafana'},
+        {'_grafana_install_plugins': ['my-plugin'], '_target': 'grafana'},
+    ]
+    result = process_accumulated_modifications(mods, '/tmp')
+
+    env = result['services']['grafana']['environment']
+    assert_equals(env['API_KEY'], '$API_KEY', "Should have passthrough env")
+    assert_equals(env['GF_LOG_LEVEL'], 'debug', "Should have registered env")
+    assert_equals(env['GF_INSTALL_PLUGINS'], 'my-plugin', "Should have install plugins")
+    print("  [PASS] test_process_accumulated_all_env_types_combined")
+
+def test_process_accumulated_env_with_users():
+    """Test all env helpers work alongside user provisioning."""
+    mods = [
+        {'_grafana_passthrough_env': ['SECRET'], '_target': 'grafana'},
+        {'_grafana_environment': {'GF_LOG_LEVEL': 'info'}, '_target': 'grafana'},
+        {'_grafana_install_plugins': ['plugin-x'], '_target': 'grafana'},
+        {
+            '_grafana_user_specs': [
+                {'username': 'dev', 'password': 'dev'},
+            ],
+            '_target': 'grafana',
+        },
+    ]
+    result = process_accumulated_modifications(mods, '/tmp')
+
+    # User setup service should exist
+    assert_true('grafana-user-setup' in result['services'], "Should have user setup service")
+
+    # Env vars on grafana should be set
+    env = result['services']['grafana']['environment']
+    assert_equals(env['SECRET'], '$SECRET', "Should have passthrough env")
+    assert_equals(env['GF_LOG_LEVEL'], 'info', "Should have registered env")
+    assert_equals(env['GF_INSTALL_PLUGINS'], 'plugin-x', "Should have install plugins")
+    print("  [PASS] test_process_accumulated_env_with_users")
+
+def test_process_accumulated_only_env_no_other_markers():
+    """Test process_accumulated_modifications with only env markers (no aggregator/users)."""
+    mods = [
+        {'_grafana_environment': {'GF_LOG_LEVEL': 'debug'}, '_target': 'grafana'},
+    ]
+    result = process_accumulated_modifications(mods, '/tmp')
+
+    assert_equals(result['_target'], 'grafana', "Target should be grafana")
+    assert_true('grafana-user-setup' not in result.get('services', {}), "Should NOT have user setup")
+    assert_true('aggregator-config' not in result.get('services', {}), "Should NOT have aggregator")
+    assert_equals(result['services']['grafana']['environment']['GF_LOG_LEVEL'], 'debug', "Should set env")
+    print("  [PASS] test_process_accumulated_only_env_no_other_markers")
+
+# ============================================================================
+# Tiltfile Structure Tests (verify source has new helpers)
+# ============================================================================
+
+def test_tiltfile_has_passthrough_env():
+    """Test Tiltfile defines passthrough_env function."""
+    tiltfile_path = os.path.dirname(__file__) + '/../Tiltfile'
+    content = str(read_file(tiltfile_path))
+    assert_in('def passthrough_env(cc, var_names):', content,
+              "Should define passthrough_env(cc, var_names) function")
+    assert_in('_grafana_passthrough_env', content, "Should use _grafana_passthrough_env marker")
+    print("  [PASS] test_tiltfile_has_passthrough_env")
+
+def test_tiltfile_has_register_environment():
+    """Test Tiltfile defines register_environment function."""
+    tiltfile_path = os.path.dirname(__file__) + '/../Tiltfile'
+    content = str(read_file(tiltfile_path))
+    assert_in('def register_environment(cc, env_dict):', content,
+              "Should define register_environment(cc, env_dict) function")
+    assert_in('_grafana_environment', content, "Should use _grafana_environment marker")
+    print("  [PASS] test_tiltfile_has_register_environment")
+
+def test_tiltfile_has_install_plugins():
+    """Test Tiltfile defines install_plugins function."""
+    tiltfile_path = os.path.dirname(__file__) + '/../Tiltfile'
+    content = str(read_file(tiltfile_path))
+    assert_in('def install_plugins(cc, plugin_urls):', content,
+              "Should define install_plugins(cc, plugin_urls) function")
+    assert_in('_grafana_install_plugins', content, "Should use _grafana_install_plugins marker")
+    print("  [PASS] test_tiltfile_has_install_plugins")
+
+def test_tiltfile_process_accumulated_handles_passthrough():
+    """Test process_accumulated_modifications in Tiltfile handles passthrough env."""
+    tiltfile_path = os.path.dirname(__file__) + '/../Tiltfile'
+    content = str(read_file(tiltfile_path))
+    assert_in("'_grafana_passthrough_env' in mod", content,
+              "Should check for _grafana_passthrough_env marker")
+    print("  [PASS] test_tiltfile_process_accumulated_handles_passthrough")
+
+def test_tiltfile_process_accumulated_handles_environment():
+    """Test process_accumulated_modifications in Tiltfile handles register_environment."""
+    tiltfile_path = os.path.dirname(__file__) + '/../Tiltfile'
+    content = str(read_file(tiltfile_path))
+    assert_in("'_grafana_environment' in mod", content,
+              "Should check for _grafana_environment marker")
+    print("  [PASS] test_tiltfile_process_accumulated_handles_environment")
+
+def test_tiltfile_process_accumulated_handles_install_plugins():
+    """Test process_accumulated_modifications in Tiltfile handles install_plugins."""
+    tiltfile_path = os.path.dirname(__file__) + '/../Tiltfile'
+    content = str(read_file(tiltfile_path))
+    assert_in("'_grafana_install_plugins' in mod", content,
+              "Should check for _grafana_install_plugins marker")
+    assert_in('GF_INSTALL_PLUGINS', content,
+              "Should set GF_INSTALL_PLUGINS environment variable")
+    print("  [PASS] test_tiltfile_process_accumulated_handles_install_plugins")
+
+# ============================================================================
 # Run All Tests
 # ============================================================================
 
@@ -947,6 +1362,40 @@ def run_tests():
     test_process_accumulated_modifications_users_rbac()
     test_process_accumulated_modifications_combined()
     test_process_accumulated_modifications_users_only_no_aggregator()
+
+    print("\n=== passthrough_env Tests ===")
+    test_passthrough_env_returns_marker()
+    test_passthrough_env_empty_list()
+    test_process_accumulated_passthrough_env()
+    test_process_accumulated_passthrough_env_deduplicates()
+    test_process_accumulated_passthrough_env_sorted()
+
+    print("\n=== register_environment Tests ===")
+    test_register_environment_returns_marker()
+    test_register_environment_multiple_vars()
+    test_process_accumulated_register_environment()
+    test_process_accumulated_register_environment_last_writer_wins()
+    test_process_accumulated_register_environment_merges()
+
+    print("\n=== install_plugins Tests ===")
+    test_install_plugins_returns_marker()
+    test_install_plugins_multiple()
+    test_process_accumulated_install_plugins()
+    test_process_accumulated_install_plugins_deduplicates()
+    test_process_accumulated_install_plugins_with_urls()
+
+    print("\n=== Combined Accumulation Tests ===")
+    test_process_accumulated_all_env_types_combined()
+    test_process_accumulated_env_with_users()
+    test_process_accumulated_only_env_no_other_markers()
+
+    print("\n=== Tiltfile Structure Tests (New Helpers) ===")
+    test_tiltfile_has_passthrough_env()
+    test_tiltfile_has_register_environment()
+    test_tiltfile_has_install_plugins()
+    test_tiltfile_process_accumulated_handles_passthrough()
+    test_tiltfile_process_accumulated_handles_environment()
+    test_tiltfile_process_accumulated_handles_install_plugins()
 
     print("\n" + "=" * 50)
     print("All tests passed!")
