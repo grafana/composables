@@ -140,7 +140,7 @@ cat /certs/aggregator-config.yaml
                 'restart': 'no',
             },
             'grafana': {
-                'depends_on': ['aggregator-config'],
+                'depends_on': {'aggregator-config': {'condition': 'service_started'}},
             },
         },
     }
@@ -661,8 +661,10 @@ def test_process_accumulated_modifications_grafana_depends_on():
 
     assert_true('grafana' in result['services'], "Should have grafana service")
     assert_true('depends_on' in result['services']['grafana'], "Grafana should have depends_on")
-    assert_in('aggregator-config', result['services']['grafana']['depends_on'],
-              "Grafana should depend on aggregator-config")
+    assert_true('aggregator-config' in result['services']['grafana']['depends_on'],
+                "Grafana should depend on aggregator-config")
+    assert_equals(result['services']['grafana']['depends_on']['aggregator-config']['condition'],
+                  'service_started', "Should use service_started condition")
     print("  [PASS] test_process_accumulated_modifications_grafana_depends_on")
 
 def test_process_accumulated_modifications_multiple():

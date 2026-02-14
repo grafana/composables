@@ -426,7 +426,7 @@ cat /certs/aggregator-config.yaml
                 'restart': 'no',
             },
             'grafana': {
-                'depends_on': ['aggregator-config'],
+                'depends_on': {'aggregator-config': {'condition': 'service_started'}},
             },
         },
     }
@@ -1138,7 +1138,7 @@ def cc_wire_when(cc):
             'services': {
                 'grafana': {
                     # Add service dependency
-                    'depends_on': ['db'],
+                    'depends_on': {'db': {'condition': 'service_started'}},
                     
                     # Configure database connection
                     'environment': {
@@ -1159,7 +1159,7 @@ def cc_wire_when(cc):
             'services': {
                 'grafana': {
                     # Add service dependency
-                    'depends_on': ['k3s-apiserver'],
+                    'depends_on': {'k3s-apiserver': {'condition': 'service_started'}},
 
                     # Mount the shared certificates volume
                     'volumes': [
@@ -1201,7 +1201,7 @@ cat /certs/aggregator-config.yaml''',
         'nats': {
             'services': {
                 'grafana': {
-                    'depends_on': ['nats'],
+                    'depends_on': {'nats': {'condition': 'service_started'}},
                     'environment': {
                         'DASH_PKG_NATS_SERVER_ADDRESS': 'nats://nats:4222',
                     },
@@ -1213,7 +1213,7 @@ cat /certs/aggregator-config.yaml''',
         'renderer': {
             'services': {
                 'grafana': {
-                    'depends_on': ['renderer'],
+                    'depends_on': {'renderer': {'condition': 'service_started'}},
                     'environment': {
                         'GF_RENDERING_SERVER_URL': 'http://renderer:8081/render',
                         'GF_RENDERING_CALLBACK_URL': 'http://grafana:3000/',
@@ -1226,7 +1226,7 @@ cat /certs/aggregator-config.yaml''',
         'jaeger': {
             'services': {
                 'grafana': {
-                    'depends_on': ['jaeger'],
+                    'depends_on': {'jaeger': {'condition': 'service_started'}},
                     'environment': {
                         'OTEL_EXPORTER_OTLP_ENDPOINT': 'http://jaeger:4317',
                         'OTEL_TRACES_SAMPLER': 'always_on',
