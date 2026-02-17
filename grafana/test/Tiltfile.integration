@@ -96,10 +96,10 @@ if __file__ == config.main_path:
 
     print("Checking wire-when rules activation:")
 
-    # Verify grafana depends on both db and k3s-apiserver
+    # Verify grafana depends on both db and k3s-apiserver (dict format with condition)
     assert_contains(staged_content, "depends_on:", "grafana service has depends_on")
-    assert_contains(staged_content, "- db", "grafana depends on db (mysql wire-when)")
-    assert_contains(staged_content, "- k3s-apiserver", "grafana depends on k3s-apiserver (k3s wire-when)")
+    assert_contains(staged_content, "db:", "grafana depends on db (mysql wire-when)")
+    assert_contains(staged_content, "k3s-apiserver:", "grafana depends on k3s-apiserver (k3s wire-when)")
 
     print("\nChecking mysql wire-when environment variables:")
 
