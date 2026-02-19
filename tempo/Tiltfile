@@ -25,7 +25,7 @@ def cc_wire_when(cc):
         'grafana': {
             'services': {
                 'grafana': {
-                    'depends_on': ['tempo'],
+                    'depends_on': {'tempo': {'condition': 'service_started'}},
                     'volumes': [
                         os.path.dirname(__file__) + '/tempo-datasource.yaml:/etc/grafana/provisioning/datasources/tempo.yaml:ro',
                     ],
