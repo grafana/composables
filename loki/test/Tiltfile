@@ -24,7 +24,7 @@ def assert_in(item, collection, msg=""):
         fail(fail_msg)
 
 # ============================================================================
-# cc_export Tests
+# cc_wire_when Tests (behavioral)
 # ============================================================================
 
 def cc_wire_when():

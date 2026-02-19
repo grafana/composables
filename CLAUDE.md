@@ -108,6 +108,8 @@ Always use **dict format** for `depends_on` in compose overrides, never list for
 'depends_on': ['loki']
 ```
 
+Use `service_started` as the default condition, or `service_healthy` when the target service defines a healthcheck.
+
 ## Writing a Composable
 
 ### Minimal (redis-style)
