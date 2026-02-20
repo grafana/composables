@@ -63,7 +63,7 @@ def cc_wire_when(cc):
         'grafana': {  # When grafana is also loaded...
             'services': {
                 'grafana': {  # ...modify the grafana service
-                    'depends_on': ['prometheus'],
+                    'depends_on': {'prometheus': {'condition': 'service_started'}},
                     'volumes': ['./datasource.yaml:/etc/grafana/provisioning/datasources/prom.yaml:ro'],
                 },
             },
@@ -95,6 +95,20 @@ When compose_overrides are applied, compose_composer deep-merges:
 - Special env vars (`GF_FEATURE_TOGGLES_ENABLE`, `GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS`, `WEBHOOK_OPERATORS`, `API_GROUPS`) concatenate with commas
 - URLs (containing `://`) always replace, never concatenate
 - Scalars: last wins
+
+### `depends_on` Format
+
+Always use **dict format** for `depends_on` in compose overrides, never list format. Lists and dicts cannot deep-merge together, causing type mismatch errors when multiple composables modify the same service.
+
+```python
+# CORRECT — dict format, deep-mergeable
+'depends_on': {'loki': {'condition': 'service_started'}}
+
+# WRONG — list format, causes type conflicts during merge
+'depends_on': ['loki']
+```
+
+Use `service_started` as the default condition, or `service_healthy` when the target service defines a healthcheck.
 
 ## Writing a Composable
 

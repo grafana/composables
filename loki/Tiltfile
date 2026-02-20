@@ -2,7 +2,8 @@
 # Provides Loki log aggregation system.
 #
 # Exports:
-#   cc_export(cc)  - Returns plugin struct for compose_composer
+#   cc_export(cc)    - Returns plugin struct for compose_composer
+#   cc_wire_when(cc) - Conditional wiring rules (auto-register datasource in Grafana)
 
 def cc_export(cc):
     """Returns the plugin struct for compose_composer."""
@@ -11,4 +12,25 @@ def cc_export(cc):
         os.path.dirname(__file__) + '/loki.yaml',
         labels=['observability'],
     )
+
+def cc_wire_when(cc):
+    """
+    Declare conditional wiring rules.
+
+    When Grafana is present, automatically register Loki as a datasource.
+    This follows the symmetric pattern - any project using both Loki and Grafana
+    gets the datasource configured automatically.
+    """
+    return {
+        'grafana': {
+            'services': {
+                'grafana': {
+                    'depends_on': {'loki': {'condition': 'service_started'}},
+                    'volumes': [
+                        os.path.dirname(__file__) + '/loki-datasource.yaml:/etc/grafana/provisioning/datasources/loki.yaml:ro',
+                    ],
+                },
+            },
+        },
+    }
 

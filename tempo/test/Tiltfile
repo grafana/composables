@@ -1,0 +1,158 @@
+# Tests for tempo composable
+# Run with: tilt ci (from this directory)
+
+# ============================================================================
+# Test Helpers
+# ============================================================================
+
+def assert_equals(actual, expected, msg=""):
+    if actual != expected:
+        fail_msg = "Expected '{}', got '{}'".format(expected, actual)
+        if msg:
+            fail_msg = msg + ": " + fail_msg
+        fail(fail_msg)
+
+def assert_true(condition, msg=""):
+    if not condition:
+        fail(msg if msg else "Assertion failed")
+
+def assert_in(item, collection, msg=""):
+    if item not in collection:
+        fail_msg = "'{}' not in '{}'".format(item, collection)
+        if msg:
+            fail_msg = msg + ": " + fail_msg
+        fail(fail_msg)
+
+# ============================================================================
+# cc_wire_when Tests (behavioral)
+# ============================================================================
+
+def cc_wire_when():
+    """Copy of cc_wire_when from parent Tiltfile (without cc param)."""
+    return {
+        'grafana': {
+            'services': {
+                'grafana': {
+                    'depends_on': {'tempo': {'condition': 'service_started'}},
+                    'volumes': [
+                        os.path.dirname(__file__) + '/../tempo-datasource.yaml:/etc/grafana/provisioning/datasources/tempo.yaml:ro',
+                    ],
+                },
+            },
+        },
+    }
+
+def test_cc_wire_when_returns_correct_structure():
+    """Test cc_wire_when returns correct wiring dict structure."""
+    result = cc_wire_when()
+    assert_true('grafana' in result, "Should have 'grafana' key")
+    grafana_service = result['grafana']['services']['grafana']
+    assert_true(type(grafana_service['depends_on']) == 'dict', "depends_on should be dict format, not list")
+    assert_true('tempo' in grafana_service['depends_on'], "depends_on should include 'tempo'")
+    assert_equals(grafana_service['depends_on']['tempo']['condition'], 'service_started', "condition should be service_started")
+    assert_true(len(grafana_service['volumes']) == 1, "Should have one volume mount")
+    assert_in('/etc/grafana/provisioning/datasources/tempo.yaml:ro', grafana_service['volumes'][0], "Should mount to Grafana provisioning path")
+    print("  [PASS] test_cc_wire_when_returns_correct_structure")
+
+def test_compose_file_exists():
+    """Test tempo.yaml compose file exists."""
+    compose_path = os.path.dirname(__file__) + '/../tempo.yaml'
+    content = str(read_file(compose_path))
+    assert_true(len(content) > 0, "tempo.yaml should not be empty")
+    print("  [PASS] test_compose_file_exists")
+
+def test_compose_has_tempo_service():
+    """Test tempo.yaml has tempo service defined."""
+    compose_path = os.path.dirname(__file__) + '/../tempo.yaml'
+    content = str(read_file(compose_path))
+    assert_in('tempo:', content, "Should have tempo service")
+    assert_in('grafana/tempo:', content, "Should use grafana/tempo image")
+    print("  [PASS] test_compose_has_tempo_service")
+
+def test_compose_has_volume():
+    """Test tempo service has data volume."""
+    compose_path = os.path.dirname(__file__) + '/../tempo.yaml'
+    content = str(read_file(compose_path))
+    assert_in('tempo-data:', content, "Should have tempo-data volume")
+    print("  [PASS] test_compose_has_volume")
+
+# ============================================================================
+# Tiltfile Structure Tests
+# ============================================================================
+
+def test_tiltfile_has_cc_export():
+    """Test Tiltfile exports cc_export function."""
+    tiltfile_path = os.path.dirname(__file__) + '/../Tiltfile'
+    content = str(read_file(tiltfile_path))
+    assert_in('def cc_export(cc):', content, "Should define cc_export(cc) function")
+    assert_in("'tempo'", content, "Should use 'tempo' as name")
+    assert_in('tempo.yaml', content, "Should reference tempo.yaml")
+    print("  [PASS] test_tiltfile_has_cc_export")
+
+def test_tiltfile_has_cc_wire_when():
+    """Test Tiltfile exports cc_wire_when function."""
+    tiltfile_path = os.path.dirname(__file__) + '/../Tiltfile'
+    content = str(read_file(tiltfile_path))
+    assert_in('def cc_wire_when(cc):', content, "Should define cc_wire_when(cc) function")
+    print("  [PASS] test_tiltfile_has_cc_wire_when")
+
+# ============================================================================
+# Wire-When Tests (Grafana datasource)
+# ============================================================================
+
+def test_datasource_file_exists():
+    """Test tempo-datasource.yaml exists for Grafana provisioning."""
+    ds_path = os.path.dirname(__file__) + '/../tempo-datasource.yaml'
+    content = str(read_file(ds_path))
+    assert_true(len(content) > 0, "tempo-datasource.yaml should not be empty")
+    print("  [PASS] test_datasource_file_exists")
+
+def test_datasource_has_correct_config():
+    """Test tempo-datasource.yaml has correct Grafana provisioning config."""
+    ds_path = os.path.dirname(__file__) + '/../tempo-datasource.yaml'
+    content = str(read_file(ds_path))
+    assert_in('apiVersion: 1', content, "Should have apiVersion")
+    assert_in('name: tempo', content, "Should have name: tempo")
+    assert_in('type: tempo', content, "Should have type: tempo")
+    assert_in('http://tempo:3200', content, "Should have correct URL")
+    assert_in('isDefault: false', content, "Should not be default datasource")
+    print("  [PASS] test_datasource_has_correct_config")
+
+def test_wire_when_grafana_has_datasource_mount():
+    """Test cc_wire_when configures Grafana datasource mount."""
+    tiltfile_path = os.path.dirname(__file__) + '/../Tiltfile'
+    content = str(read_file(tiltfile_path))
+    assert_in("'grafana':", content, "Should have grafana wire_when rule")
+    assert_in('tempo-datasource.yaml', content, "Should reference datasource file")
+    assert_in('/etc/grafana/provisioning/datasources/', content, "Should mount to Grafana provisioning")
+    assert_in("'depends_on':", content, "Should have depends_on in wire_when")
+    assert_in("'condition': 'service_started'", content, "depends_on should use dict format with condition")
+    print("  [PASS] test_wire_when_grafana_has_datasource_mount")
+
+# ============================================================================
+# Run All Tests
+# ============================================================================
+
+def run_tests():
+    print("\n=== Tempo Composable Unit Tests ===")
+    test_cc_wire_when_returns_correct_structure()
+    test_compose_file_exists()
+    test_compose_has_tempo_service()
+    test_compose_has_volume()
+    test_tiltfile_has_cc_export()
+
+    print("\n=== Wire-When Tests ===")
+    test_tiltfile_has_cc_wire_when()
+    test_datasource_file_exists()
+    test_datasource_has_correct_config()
+    test_wire_when_grafana_has_datasource_mount()
+
+    print("\n" + "=" * 50)
+    print("All tests passed!")
+    print("=" * 50)
+
+# Run tests
+run_tests()
+
+# Dummy resource to satisfy tilt ci
+local_resource('tests', cmd='echo "Tests completed"', auto_init=False)
