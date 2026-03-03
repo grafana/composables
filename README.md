@@ -2,6 +2,8 @@
 
 Reusable Tilt extensions for common development services. Each composable provides a service with helper functions, wire-when rules, and docker-compose configurations.
 
+> **Note:** This project is under active development. APIs and composable interfaces may change.
+
 ## Available Components
 
 - **azurite** - Azure Storage emulator
@@ -61,3 +63,11 @@ Each composable directory contains:
 ## Environment
 
 Configuration is loaded from `.env.docker-compose` if present. This attempts to reduce port conflicts for `make test` if other systems are running.
+
+## Contributing
+
+See our [contributing guide](CONTRIBUTING.md).
+
+## License
+
+[Apache License 2.0](LICENSE)
