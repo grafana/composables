@@ -3,7 +3,7 @@
 
 FROM ghcr.io/tarampampam/microcheck:1@sha256:79c187c05bfa67518078bf4db117771942fa8fe107dc79a905861c75ddf28dfa AS healthcheck
 
-FROM grafana/loki:latest@sha256:847c287ada0e12603910589f42038c5cdaaad04e248bd1dc6c6e0920a235f427
+FROM grafana/loki:latest@sha256:3c8fd3570dd9219951a60d3f919c7f31923d10baee578b77bc26c4a0b32d092d
 
 # Copy static healthcheck binary from microcheck image
 # microcheck is a minimal (~75KB) statically linked healthcheck tool
