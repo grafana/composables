@@ -13,6 +13,7 @@
 #   configure_admin(cc, ...)       - Set admin credentials for API calls
 #   passthrough_env(cc, ...)        - Forward host env vars into Grafana container (accumulated)
 #   register_environment(cc, ...)  - Set Grafana environment variables (accumulated)
+#   set_stack_id(cc, ...)          - Set stack ID for k8s namespace mapping (mounts ini workaround)
 #   install_plugins(cc, ...)       - Install Grafana marketplace/external plugins (accumulated)
 #   process_accumulated_modifications() - Callback invoked by compose_composer (not auto-bound)
 
@@ -925,6 +926,64 @@ def register_environment(cc, env_dict):
     return {
         '_grafana_environment': env_dict,
         '_target': 'grafana',
+    }
+
+
+def set_stack_id(cc, stack_id):
+    """
+    Set the Grafana stack ID for Kubernetes namespace mapping.
+
+    When Grafana's embedded API server is configured with a stack ID, all
+    Kubernetes resources use the namespace 'stacks-{id}' instead of the
+    default org-based namespace ('default' for org 1, 'org-N' for others).
+
+    This generates a custom ini file with the actual stack_id value set.
+    Grafana's loadSpecifiedConfigFile() skips keys with empty values, and
+    applyEnvVariableOverrides() only overrides keys that already exist, so
+    the ini file must contain the value directly — not an empty placeholder.
+
+    The GF_ENVIRONMENT_STACK_ID env var is also set as a secondary override
+    for code that reads the setting dynamically via SectionWithEnvOverrides.
+
+    Args:
+        cc: Orchestrator's cc struct (injected by compose_composer)
+        stack_id: int or str - The stack ID (e.g., 1001)
+
+    Returns:
+        Dict with compose_overrides that sets the env var and mounts
+        the ini file needed for it to take effect.
+
+    Example:
+        grafana = cc.use('grafana')
+
+        def cc_export(cc):
+            return cc.create(
+                'my-app',
+                os.path.dirname(__file__) + '/docker-compose.yaml',
+                grafana,
+                modifications=[
+                    grafana.set_stack_id(1001),
+                    grafana.register_aggregator_config(api_groups=[...]),
+                ],
+            )
+    """
+    staging_dir = os.getenv('CC_STAGING_DIR', os.getcwd() + '/.cc')
+    ini_path = staging_dir + '/grafana-stack.ini'
+    ini_content = '[environment]\nstack_id = %s\n' % str(stack_id)
+    local('mkdir -p "%s" && printf \'%s\' > "%s"' % (staging_dir, ini_content, ini_path), quiet=True)
+
+    return {
+        'services': {
+            'grafana': {
+                'environment': {
+                    'GF_ENVIRONMENT_STACK_ID': str(stack_id),
+                    'GF_PATHS_CONFIG': '/etc/grafana/grafana-stack.ini',
+                },
+                'volumes': [
+                    ini_path + ':/etc/grafana/grafana-stack.ini:ro',
+                ],
+            },
+        },
     }
 
 
