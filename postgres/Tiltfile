@@ -1,0 +1,148 @@
+# PostgreSQL Tilt Extension
+# Provides PostgreSQL database for development.
+#
+# Exports:
+#   cc_export(cc)                       - Returns plugin struct for compose_composer
+#   create_databases(cc, ...)           - Helper to create multiple databases (legacy, still supported)
+#   require_database(cc, ...)           - Declare database requirement (recommended for new code)
+#   process_accumulated_modifications() - Callback invoked by compose_composer (not auto-bound)
+
+def _create_databases_impl(database_names=[], orchestrator_dir=None):
+    """
+    Internal implementation of create_databases.
+
+    Args:
+        database_names: List of database names to create (e.g., ['grafana', 'irm', 'incident'])
+        orchestrator_dir: Directory where orchestrator is running (for generating init script)
+
+    Returns:
+        Dict with compose_overrides to create the databases
+    """
+    if not database_names:
+        return {}
+
+    if not orchestrator_dir:
+        orchestrator_dir = os.getcwd()
+
+    db_list = ' '.join(database_names)
+    script_lines = [
+        '#!/bin/bash',
+        'set -e',
+        'for db in ' + db_list + '; do',
+        '  psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d postgres -tc \\',
+        '    "SELECT 1 FROM pg_database WHERE datname = \'$db\'" | grep -q 1 \\',
+        '    || psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d postgres -c "CREATE DATABASE \\"$db\\""',
+        '  psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d postgres -c \\',
+        '    "GRANT ALL PRIVILEGES ON DATABASE \\"$db\\" TO \\"$POSTGRES_USER\\""',
+        'done',
+    ]
+    shell_script = '\n'.join(script_lines) + '\n'
+
+    init_dir = orchestrator_dir + '/.cc'
+    local('mkdir -p ' + init_dir)
+
+    init_script_path = init_dir + '/postgres-init.sh'
+    local('cat > ' + init_script_path + ' <<\'PGEOF\'\n' + shell_script + 'PGEOF\n')
+    local('chmod +x ' + init_script_path)
+
+    return {
+        'services': {
+            'db': {
+                'volumes': [
+                    init_script_path + ':/docker-entrypoint-initdb.d/01-create-databases.sh:ro',
+                ],
+            },
+        },
+    }
+
+def create_databases(cc, database_names=[], orchestrator_dir=None):
+    """
+    Helper function to create multiple databases in PostgreSQL.
+
+    Args:
+        cc: Orchestrator's cc struct (injected by compose_composer)
+        database_names: List of database names to create (e.g., ['grafana', 'irm', 'incident'])
+        orchestrator_dir: Directory where orchestrator is running (for generating init script)
+
+    Returns:
+        Dict with compose_overrides to create the databases
+
+    Example:
+        postgres.create_databases(['grafana', 'irm', 'incident'], os.path.dirname(__file__))
+    """
+    return _create_databases_impl(database_names, orchestrator_dir)
+
+def require_database(cc, database_name):
+    """
+    Declare that this composable requires a database to be created.
+
+    This is a declarative marker - it doesn't create the database directly.
+    Instead, compose_composer accumulates all requirements and calls
+    create_databases() once with the full list.
+
+    Args:
+        cc: Orchestrator's cc struct (injected by compose_composer)
+        database_name: Name of database to create (e.g., 'irm')
+
+    Returns:
+        Dict with _database_requirement marker for compose_composer to process
+
+    Example:
+        # In your composable's cc_export():
+        return cc_create(
+            'my-service',
+            ...,
+            postgres,
+            modifications=[
+                postgres.require_database('my_db'),
+            ],
+        )
+    """
+    return {
+        '_database_requirement': database_name,
+        '_target': 'postgres',
+    }
+
+def process_accumulated_modifications(all_modifications, orchestrator_dir):
+    """
+    Extract database requirements from all modifications and generate create_databases.
+
+    This helper is called by compose_composer AFTER collecting all modifications
+    from root + CLI plugins. PostgreSQL handles its own requirement processing.
+    NOT auto-bound - called directly by compose_composer.
+
+    Args:
+        all_modifications: List of all modification dicts from all plugins
+        orchestrator_dir: Directory for generating postgres-init.sh script
+
+    Returns:
+        Dict with compose_overrides to create all required databases,
+        or {} if no requirements found
+    """
+    database_requirements = []
+
+    for mod in all_modifications:
+        if type(mod) == 'dict' and '_database_requirement' in mod:
+            db_name = mod['_database_requirement']
+            if db_name:
+                database_requirements.append(db_name)
+
+    unique_databases = sorted(list(set(database_requirements)))
+
+    if not unique_databases:
+        return {}
+
+    print("[postgres] Auto-provisioning databases: {}".format(', '.join(unique_databases)))
+
+    mod = _create_databases_impl(unique_databases, orchestrator_dir)
+    mod['_target'] = 'postgres'
+
+    return mod
+
+def cc_export(cc):
+    """Returns the plugin struct for compose_composer."""
+    return cc.create(
+        'postgres',
+        os.path.dirname(__file__) + '/postgres.yaml',
+        labels=['infra'],
+    )
