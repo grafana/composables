@@ -1,0 +1,159 @@
+# Integration tests for postgres require_database accumulation
+# Run with: tilt ci -f Tiltfile.integration-require-database (from this directory)
+#
+# This test verifies that multiple require_database() calls from different
+# composables are accumulated, deduplicated, and result in all databases
+# being created in PostgreSQL.
+
+COMPOSABLES_URL = os.getenv('COMPOSABLES_URL', 'file://' + os.path.abspath(os.path.dirname(__file__) + '/../..'))
+COMPOSE_COMPOSER_URL = os.getenv('COMPOSE_COMPOSER_URL', 'https://github.com/grafana/tilt-extensions')
+COMPOSE_COMPOSER_REF = os.getenv('COMPOSE_COMPOSER_REF', 'main')
+
+# Set up extension repo for standalone mode only
+if __file__ == config.main_path:
+    if COMPOSE_COMPOSER_URL.startswith('file://'):
+        v1alpha1.extension_repo(name='grafana-tilt-extensions', url=COMPOSE_COMPOSER_URL)
+    else:
+        v1alpha1.extension_repo(name='grafana-tilt-extensions', url=COMPOSE_COMPOSER_URL, ref=COMPOSE_COMPOSER_REF)
+    v1alpha1.extension(name='compose_composer', repo_name='grafana-tilt-extensions', repo_path='compose_composer')
+
+load('ext://compose_composer', 'cc_init')
+
+allow_k8s_contexts(k8s_context())
+
+def cc_export(cc):
+    """
+    Test plugin that simulates multiple composables each requiring a database.
+    Uses require_database() multiple times, including a duplicate to test dedup.
+    """
+    postgres = cc.use('postgres', labels=['infra'])
+
+    return cc.create(
+        'postgres-require-db-test',
+        os.path.dirname(__file__) + '/docker-compose.yaml',
+        labels=['test'],
+        modifications=[
+            postgres.require_database('app_one'),
+            postgres.require_database('app_two'),
+            postgres.require_database('app_three'),
+            postgres.require_database('app_one'),  # duplicate — should be deduplicated
+        ],
+    )
+
+# ============================================================================
+# Standalone Mode
+# ============================================================================
+
+if __file__ == config.main_path:
+    cc = cc_init('postgres-require-db-test', composables_url=COMPOSABLES_URL)
+
+    print("\n" + "=" * 70)
+    print("PostgreSQL require_database Integration Test")
+    print("=" * 70)
+    print("\nThis integration test verifies:")
+    print("  1. Multiple require_database() calls are accumulated")
+    print("  2. Duplicate database names are deduplicated")
+    print("  3. postgres-init.sh is generated with all databases")
+    print("  4. All databases are actually created in PostgreSQL")
+    print("\nRunning compose_composer pipeline...")
+    print("=" * 70 + "\n")
+
+    master = cc.generate_master_compose(
+        cc_export(cc),
+        cc.parse_cli_plugins(),
+    )
+
+    # ====================================================================
+    # Verify staged init script contains all databases
+    # ====================================================================
+
+    print("\n" + "=" * 70)
+    print("Verifying Staged Files")
+    print("=" * 70 + "\n")
+
+    init_script_path = os.path.dirname(__file__) + '/.cc/postgres-init.sh'
+    init_script = str(read_file(init_script_path))
+
+    def assert_contains(content, substring, description):
+        if substring not in content:
+            fail("INTEGRATION TEST FAILED: " + description + "\n  Expected to find: " + substring)
+        print("  [PASS] " + description)
+
+    def assert_not_contains(content, substring, description):
+        if substring in content:
+            fail("INTEGRATION TEST FAILED: " + description + "\n  Did not expect to find: " + substring)
+        print("  [PASS] " + description)
+
+    print("Checking postgres-init.sh script:")
+    assert_contains(init_script, "app_one", "init script contains app_one")
+    assert_contains(init_script, "app_two", "init script contains app_two")
+    assert_contains(init_script, "app_three", "init script contains app_three")
+
+    # Databases should appear sorted and deduplicated in the 'for db in ...' line
+    assert_contains(init_script, "app_one app_three app_two", "databases are sorted and deduplicated")
+
+    # ====================================================================
+    # Start services and verify databases via psql
+    # ====================================================================
+
+    print("\n" + "=" * 70)
+    print("Starting services for live verification...")
+    print("=" * 70 + "\n")
+
+    cc.docker_compose(master)
+
+    local_resource(
+        'verify-databases',
+        cmd='''
+echo "=== Verifying PostgreSQL Database Creation ==="
+
+CONTAINER="postgres-require-db-test-db-1"
+MAX_RETRIES=30
+
+# Wait for PostgreSQL to be ready
+echo "Waiting for PostgreSQL to be ready..."
+RETRIES=0
+while [ $RETRIES -lt $MAX_RETRIES ]; do
+  if docker exec "$CONTAINER" pg_isready -U user -d grafana > /dev/null 2>&1; then
+    echo "PostgreSQL is ready"
+    break
+  fi
+  RETRIES=$((RETRIES + 1))
+  sleep 2
+done
+
+if [ $RETRIES -eq $MAX_RETRIES ]; then
+  echo "FAIL: PostgreSQL did not become ready"
+  exit 1
+fi
+
+PASS=0
+FAIL=0
+
+# Check each expected database exists
+for DB_NAME in app_one app_two app_three; do
+  echo ""
+  echo "--- Checking database: $DB_NAME ---"
+  EXISTS=$(docker exec "$CONTAINER" psql -U user -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname = '$DB_NAME'" 2>/dev/null | tr -d '[:space:]')
+  if [ "$EXISTS" = "1" ]; then
+    echo "  [PASS] database $DB_NAME exists"
+    PASS=$((PASS + 1))
+  else
+    echo "  [FAIL] database $DB_NAME not found (got: '$EXISTS')"
+    FAIL=$((FAIL + 1))
+  fi
+done
+
+echo ""
+echo "=== Results: $PASS passed, $FAIL failed ==="
+
+if [ $FAIL -gt 0 ]; then
+  echo "INTEGRATION TEST FAILED"
+  exit 1
+fi
+
+echo "ALL INTEGRATION TESTS PASSED"
+''',
+        resource_deps=['db'],
+        labels=['test'],
+    )
