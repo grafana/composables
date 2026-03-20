@@ -1,0 +1,13 @@
+# etcd Tilt Extension
+# Provides etcd key-value store for development.
+#
+# Exports:
+#   cc_export(cc)  - Returns plugin struct for compose_composer
+
+def cc_export(cc):
+    """Returns the plugin struct for compose_composer."""
+    return cc.create(
+        'etcd',
+        os.path.dirname(__file__) + '/etcd.yaml',
+        labels=['infra'],
+    )
