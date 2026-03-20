@@ -1,0 +1,18 @@
+# etcd Key-Value Store for Development
+# Provides etcd for service discovery and configuration
+
+services:
+  etcd:
+    image: bitnamilegacy/etcd:3.6.4-debian-12-r4@sha256:6bae418245780e147d1300fede91415e3423403fdd367d598d54dc31deb6d5a6
+    ports:
+      - '${ETCD_PORT:-2379}:2379'
+    environment:
+      - ALLOW_NONE_AUTHENTICATION=yes
+      - ETCD_ADVERTISE_CLIENT_URLS=http://etcd:2379
+    healthcheck:
+      test: ["CMD", "etcdctl", "endpoint", "health"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+
+volumes: {}
