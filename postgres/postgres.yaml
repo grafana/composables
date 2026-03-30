@@ -3,8 +3,8 @@
 # Used by various development environments
 
 services:
-  db:
-    image: postgres:18
+  pgdb:
+    image: pgvector/pgvector:pg18
     environment:
       POSTGRES_USER: user
       POSTGRES_PASSWORD: pass

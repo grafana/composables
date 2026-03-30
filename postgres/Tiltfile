@@ -5,37 +5,59 @@
 #   cc_export(cc)                       - Returns plugin struct for compose_composer
 #   create_databases(cc, ...)           - Helper to create multiple databases (legacy, still supported)
 #   require_database(cc, ...)           - Declare database requirement (recommended for new code)
+#   require_extension(cc, ...)          - Declare extension requirement (e.g., 'vector' for pgvector)
 #   process_accumulated_modifications() - Callback invoked by compose_composer (not auto-bound)
 
-def _create_databases_impl(database_names=[], orchestrator_dir=None):
+def _create_databases_impl(database_names=[], extensions=[], orchestrator_dir=None):
     """
     Internal implementation of create_databases.
 
     Args:
         database_names: List of database names to create (e.g., ['grafana', 'irm', 'incident'])
+        extensions: List of PostgreSQL extensions to enable in each database (e.g., ['vector'])
         orchestrator_dir: Directory where orchestrator is running (for generating init script)
 
     Returns:
-        Dict with compose_overrides to create the databases
+        Dict with compose_overrides to create the databases and enable extensions
     """
-    if not database_names:
+    if not database_names and not extensions:
         return {}
 
     if not orchestrator_dir:
         orchestrator_dir = os.getcwd()
 
-    db_list = ' '.join(database_names)
+    db_list = ' '.join(database_names) if database_names else ''
+    ext_list = ' '.join(extensions) if extensions else ''
+
     script_lines = [
         '#!/bin/bash',
         'set -e',
-        'for db in ' + db_list + '; do',
-        '  psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d postgres -tc \\',
-        '    "SELECT 1 FROM pg_database WHERE datname = \'$db\'" | grep -q 1 \\',
-        '    || psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d postgres -c "CREATE DATABASE \\"$db\\""',
-        '  psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d postgres -c \\',
-        '    "GRANT ALL PRIVILEGES ON DATABASE \\"$db\\" TO \\"$POSTGRES_USER\\""',
-        'done',
     ]
+
+    if db_list:
+        script_lines += [
+            'for db in ' + db_list + '; do',
+            '  psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d postgres -tc \\',
+            '    "SELECT 1 FROM pg_database WHERE datname = \'$db\'" | grep -q 1 \\',
+            '    || psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d postgres -c "CREATE DATABASE \\"$db\\""',
+            '  psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d postgres -c \\',
+            '    "GRANT ALL PRIVILEGES ON DATABASE \\"$db\\" TO \\"$POSTGRES_USER\\""',
+        ]
+        if ext_list:
+            script_lines += [
+                '  for ext in ' + ext_list + '; do',
+                '    psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$db" -c "CREATE EXTENSION IF NOT EXISTS \\"$ext\\""',
+                '  done',
+            ]
+        script_lines += ['done']
+
+    if ext_list:
+        script_lines += [
+            'for ext in ' + ext_list + '; do',
+            '  psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "CREATE EXTENSION IF NOT EXISTS \\"$ext\\""',
+            'done',
+        ]
+
     shell_script = '\n'.join(script_lines) + '\n'
 
     init_dir = orchestrator_dir + '/.cc'
@@ -47,7 +69,7 @@ def _create_databases_impl(database_names=[], orchestrator_dir=None):
 
     return {
         'services': {
-            'db': {
+            'pgdb': {
                 'volumes': [
                     init_script_path + ':/docker-entrypoint-initdb.d/01-create-databases.sh:ro',
                 ],
@@ -70,7 +92,7 @@ def create_databases(cc, database_names=[], orchestrator_dir=None):
     Example:
         postgres.create_databases(['grafana', 'irm', 'incident'], os.path.dirname(__file__))
     """
-    return _create_databases_impl(database_names, orchestrator_dir)
+    return _create_databases_impl(database_names=database_names, orchestrator_dir=orchestrator_dir)
 
 def require_database(cc, database_name):
     """
@@ -103,9 +125,39 @@ def require_database(cc, database_name):
         '_target': 'postgres',
     }
 
+def require_extension(cc, extension_name):
+    """
+    Declare that this composable requires a PostgreSQL extension.
+
+    The extension binary must be available in the PostgreSQL image.
+    The default image (pgvector/pgvector) includes the vector extension.
+
+    Args:
+        cc: Orchestrator's cc struct (injected by compose_composer)
+        extension_name: Name of extension to enable (e.g., 'vector')
+
+    Returns:
+        Dict with _extension_requirement marker for compose_composer to process
+
+    Example:
+        return cc.create(
+            'my-service',
+            ...,
+            modifications=[
+                postgres.require_database('my_db'),
+                postgres.require_extension('vector'),
+            ],
+        )
+    """
+    return {
+        '_extension_requirement': extension_name,
+        '_target': 'postgres',
+    }
+
 def process_accumulated_modifications(all_modifications, orchestrator_dir):
     """
-    Extract database requirements from all modifications and generate create_databases.
+    Extract database and extension requirements from all modifications and
+    generate the init script.
 
     This helper is called by compose_composer AFTER collecting all modifications
     from root + CLI plugins. PostgreSQL handles its own requirement processing.
@@ -116,25 +168,35 @@ def process_accumulated_modifications(all_modifications, orchestrator_dir):
         orchestrator_dir: Directory for generating postgres-init.sh script
 
     Returns:
-        Dict with compose_overrides to create all required databases,
-        or {} if no requirements found
+        Dict with compose_overrides to create all required databases and
+        enable extensions, or {} if no requirements found
     """
     database_requirements = []
+    extension_requirements = []
 
     for mod in all_modifications:
-        if type(mod) == 'dict' and '_database_requirement' in mod:
-            db_name = mod['_database_requirement']
-            if db_name:
-                database_requirements.append(db_name)
+        if type(mod) == 'dict':
+            if '_database_requirement' in mod:
+                db_name = mod['_database_requirement']
+                if db_name:
+                    database_requirements.append(db_name)
+            if '_extension_requirement' in mod:
+                ext_name = mod['_extension_requirement']
+                if ext_name:
+                    extension_requirements.append(ext_name)
 
     unique_databases = sorted(list(set(database_requirements)))
+    unique_extensions = sorted(list(set(extension_requirements)))
 
-    if not unique_databases:
+    if not unique_databases and not unique_extensions:
         return {}
 
-    print("[postgres] Auto-provisioning databases: {}".format(', '.join(unique_databases)))
+    if unique_databases:
+        print("[postgres] Auto-provisioning databases: {}".format(', '.join(unique_databases)))
+    if unique_extensions:
+        print("[postgres] Auto-enabling extensions: {}".format(', '.join(unique_extensions)))
 
-    mod = _create_databases_impl(unique_databases, orchestrator_dir)
+    mod = _create_databases_impl(unique_databases, unique_extensions, orchestrator_dir)
     mod['_target'] = 'postgres'
 
     return mod
