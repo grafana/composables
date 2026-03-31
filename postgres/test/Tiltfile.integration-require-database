@@ -107,7 +107,7 @@ if __file__ == config.main_path:
         cmd='''
 echo "=== Verifying PostgreSQL Database Creation ==="
 
-CONTAINER="postgres-require-db-test-db-1"
+CONTAINER="postgres-require-db-test-pgdb-1"
 MAX_RETRIES=30
 
 # Wait for PostgreSQL to be ready
@@ -154,6 +154,6 @@ fi
 
 echo "ALL INTEGRATION TESTS PASSED"
 ''',
-        resource_deps=['db'],
+        resource_deps=['pgdb'],
         labels=['test'],
     )
