@@ -3,7 +3,7 @@
 
 services:
   goff:
-    image: gofeatureflag/go-feature-flag:latest
+    image: gofeatureflag/go-feature-flag:v1.52.1@sha256:c992b400a0a1611dae3adf4911469393d85f60d58188ee647d688e369dd2170c
     command: /go-feature-flag --config /config/config.yaml
     ports:
       - '${GOFF_PORT:-1031}:1031'

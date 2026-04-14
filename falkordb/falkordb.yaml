@@ -5,7 +5,7 @@ services:
   falkordb:
     image: falkordb/falkordb:v4.16.7
     ports:
-      - '${FALKORDB_PORT:-6379}:6379'
+      - '${FALKORDB_PORT:-6381}:6379'
     restart: on-failure
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
