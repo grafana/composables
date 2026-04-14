@@ -15,10 +15,12 @@ services:
     configs:
       - source: goff_config
         target: /config/config.yaml
-    volumes:
-      - ${GOFF_FLAGS_PATH:-/dev/null}:/flags/flags.yaml:ro
+      - source: goff_flags
+        target: /flags/flags.yaml
 
 configs:
+  goff_flags:
+    content: ""
   goff_config:
     content: |
       logLevel: info

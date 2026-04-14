@@ -1,0 +1,7 @@
+# Feature flags used by the register_flags() integration test
+test-flag:
+  variations:
+    "on": true
+    "off": false
+  defaultRule:
+    variation: "on"

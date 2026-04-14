@@ -8,24 +8,22 @@
 
 def register_flags(cc, flags_path):
     """
-    Mount a feature flags YAML file into the goff container.
+    Provide a feature flags YAML file to the goff container.
 
     Args:
         cc: Orchestrator's cc struct (injected by compose_composer)
         flags_path: Absolute path to a YAML file containing feature flag definitions
 
     Returns:
-        Dict with compose_overrides to mount the flags file
+        Dict with compose_overrides to inject the flags file content
 
     Example:
         goff.register_flags(os.path.dirname(__file__) + '/provisioning/goff-flags.yaml')
     """
     return {
-        'services': {
-            'goff': {
-                'volumes': [
-                    flags_path + ':/flags/flags.yaml:ro',
-                ],
+        'configs': {
+            'goff_flags': {
+                'content': str(read_file(flags_path)),
             },
         },
     }
