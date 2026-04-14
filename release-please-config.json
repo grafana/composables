@@ -1,94 +1,9 @@
 {
   "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
   "bootstrap-sha": "bbed9c2edf8f30582ea83f087112566d3cbb0672",
-  "separate-pull-requests": true,
-  "include-component-in-tag": true,
-  "tag-separator": "/",
-  "include-v-in-tag": true,
   "packages": {
-    "azurite": {
-      "release-type": "simple",
-      "component": "azurite"
-    },
-    "bigquery-emulator": {
-      "release-type": "simple",
-      "component": "bigquery-emulator"
-    },
-    "clickhouse": {
-      "release-type": "simple",
-      "component": "clickhouse"
-    },
-    "etcd": {
-      "release-type": "simple",
-      "component": "etcd"
-    },
-    "grafana": {
-      "release-type": "simple",
-      "component": "grafana"
-    },
-    "jaeger": {
-      "release-type": "simple",
-      "component": "jaeger"
-    },
-    "k3s-apiserver": {
-      "release-type": "simple",
-      "component": "k3s-apiserver"
-    },
-    "loki": {
-      "release-type": "simple",
-      "component": "loki"
-    },
-    "mimir": {
-      "release-type": "simple",
-      "component": "mimir"
-    },
-    "mssql-test": {
-      "release-type": "simple",
-      "component": "mssql-test"
-    },
-    "mysql": {
-      "release-type": "simple",
-      "component": "mysql"
-    },
-    "mysql-test": {
-      "release-type": "simple",
-      "component": "mysql-test"
-    },
-    "nats": {
-      "release-type": "simple",
-      "component": "nats"
-    },
-    "postgres": {
-      "release-type": "simple",
-      "component": "postgres"
-    },
-    "postgres-test": {
-      "release-type": "simple",
-      "component": "postgres-test"
-    },
-    "prometheus": {
-      "release-type": "simple",
-      "component": "prometheus"
-    },
-    "promtail": {
-      "release-type": "simple",
-      "component": "promtail"
-    },
-    "rabbitmq": {
-      "release-type": "simple",
-      "component": "rabbitmq"
-    },
-    "redis": {
-      "release-type": "simple",
-      "component": "redis"
-    },
-    "renderer": {
-      "release-type": "simple",
-      "component": "renderer"
-    },
-    "tempo": {
-      "release-type": "simple",
-      "component": "tempo"
+    ".": {
+      "release-type": "simple"
     }
   }
 }
