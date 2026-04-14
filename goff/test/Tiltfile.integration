@@ -1,0 +1,32 @@
+COMPOSABLES_URL = os.getenv('COMPOSABLES_URL', 'file://' + os.path.abspath(os.path.dirname(__file__) + '/../..'))
+COMPOSE_COMPOSER_URL = os.getenv('COMPOSE_COMPOSER_URL', 'https://github.com/grafana/tilt-extensions')
+COMPOSE_COMPOSER_REF = os.getenv('COMPOSE_COMPOSER_REF', 'main')
+
+# Set up extension repo for standalone mode only
+if __file__ == config.main_path:
+    v1alpha1.extension_repo(name='grafana-tilt-extensions', url=COMPOSE_COMPOSER_URL, ref=COMPOSE_COMPOSER_REF)
+    v1alpha1.extension(name='compose_composer', repo_name='grafana-tilt-extensions', repo_path='compose_composer')
+
+load('ext://compose_composer', 'cc_init')
+
+allow_k8s_contexts(k8s_context())
+
+def cc_export(cc):
+    goff = cc.use(name='goff', labels=['feature-flags'])
+    return cc.create(
+        'goff-test',
+        os.path.dirname(__file__) + '/docker-compose.yaml',
+        labels=['test']
+    )
+
+# ============================================================================
+# Standalone Mode
+# ============================================================================
+
+if __file__ == config.main_path:
+    cc = cc_init('goff-test', composables_url=COMPOSABLES_URL)
+    master = cc.generate_master_compose(
+        cc_export(cc),
+        cc.parse_cli_plugins(),
+    )
+    cc.docker_compose(master, wait=True)

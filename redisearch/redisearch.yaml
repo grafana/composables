@@ -1,0 +1,14 @@
+# Redis Stack Server for Development
+# Provides RediSearch and RedisJSON modules on top of Redis
+
+services:
+  redisearch:
+    image: redis/redis-stack-server:7.4.0-v8
+    ports:
+      - '${REDISEARCH_PORT:-6380}:6379'
+    restart: on-failure
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 3

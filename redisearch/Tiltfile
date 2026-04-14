@@ -1,0 +1,13 @@
+# RediSearch Tilt Extension
+# Provides Redis Stack Server with RediSearch and RedisJSON modules.
+#
+# Exports:
+#   cc_export(cc)  - Returns plugin struct for compose_composer
+
+def cc_export(cc):
+    """Returns the plugin struct for compose_composer."""
+    return cc.create(
+        'redisearch',
+        os.path.dirname(__file__) + '/redisearch.yaml',
+        labels=['infra'],
+    )
