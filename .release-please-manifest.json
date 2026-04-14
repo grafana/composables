@@ -1,0 +1,23 @@
+{
+  "azurite": "0.1.0",
+  "bigquery-emulator": "0.1.0",
+  "clickhouse": "0.1.0",
+  "etcd": "0.1.0",
+  "grafana": "0.1.0",
+  "jaeger": "0.1.0",
+  "k3s-apiserver": "0.1.0",
+  "loki": "0.1.0",
+  "mimir": "0.1.0",
+  "mssql-test": "0.1.0",
+  "mysql": "0.1.0",
+  "mysql-test": "0.1.0",
+  "nats": "0.1.0",
+  "postgres": "0.1.0",
+  "postgres-test": "0.1.0",
+  "prometheus": "0.1.0",
+  "promtail": "0.1.0",
+  "rabbitmq": "0.1.0",
+  "redis": "0.1.0",
+  "renderer": "0.1.0",
+  "tempo": "0.1.0"
+}
