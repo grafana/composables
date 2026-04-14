@@ -1,0 +1,60 @@
+# Go Feature Flag (GOFF) Tilt Extension
+# Provides Go Feature Flag server for development.
+#
+# Exports:
+#   cc_export(cc)      - Returns plugin struct for compose_composer
+#   cc_wire_when(cc)   - Conditional wiring rules (auto-configure Grafana OpenFeature)
+#   register_flags(cc, flags_path) - Helper to mount a feature flags file into goff
+
+def register_flags(cc, flags_path):
+    """
+    Mount a feature flags YAML file into the goff container.
+
+    Args:
+        cc: Orchestrator's cc struct (injected by compose_composer)
+        flags_path: Absolute path to a YAML file containing feature flag definitions
+
+    Returns:
+        Dict with compose_overrides to mount the flags file
+
+    Example:
+        goff.register_flags(os.path.dirname(__file__) + '/provisioning/goff-flags.yaml')
+    """
+    return {
+        'services': {
+            'goff': {
+                'volumes': [
+                    flags_path + ':/flags/flags.yaml:ro',
+                ],
+            },
+        },
+    }
+
+def cc_export(cc):
+    """Returns the plugin struct for compose_composer."""
+    return cc.create(
+        'goff',
+        os.path.dirname(__file__) + '/goff.yaml',
+        labels=['feature-flags'],
+    )
+
+def cc_wire_when(cc):
+    """
+    Declare conditional wiring rules.
+
+    When Grafana is present, automatically configure it to use goff as an
+    OpenFeature provider via the OFREP protocol.
+    """
+    return {
+        'grafana': {
+            'services': {
+                'grafana': {
+                    'depends_on': {'goff': {'condition': 'service_started'}},
+                    'environment': {
+                        'GF_FEATURE_TOGGLES_OPENFEATURE_PROVIDER': 'ofrep',
+                        'GF_FEATURE_TOGGLES_OPENFEATURE_URL': 'http://goff:1031',
+                    },
+                },
+            },
+        },
+    }

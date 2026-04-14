@@ -1,0 +1,31 @@
+# Go Feature Flag Server for Development
+# Provides feature flag evaluation via OFREP protocol
+
+services:
+  goff:
+    image: gofeatureflag/go-feature-flag:latest
+    command: /go-feature-flag --config /config/config.yaml
+    ports:
+      - '${GOFF_PORT:-1031}:1031'
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:1031/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+    configs:
+      - source: goff_config
+        target: /config/config.yaml
+    volumes:
+      - ${GOFF_FLAGS_PATH:-/dev/null}:/flags/flags.yaml:ro
+
+configs:
+  goff_config:
+    content: |
+      logLevel: info
+      logFormat: logfmt
+      listen: 1031
+      evaluationContextEnrichment:
+        cluster: localdev
+      retrievers:
+        - kind: "file"
+          path: "/flags/flags.yaml"

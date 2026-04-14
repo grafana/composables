@@ -1,0 +1,13 @@
+# FalkorDB Tilt Extension
+# Provides FalkorDB graph database for development.
+#
+# Exports:
+#   cc_export(cc)  - Returns plugin struct for compose_composer
+
+def cc_export(cc):
+    """Returns the plugin struct for compose_composer."""
+    return cc.create(
+        'falkordb',
+        os.path.dirname(__file__) + '/falkordb.yaml',
+        labels=['infra'],
+    )
