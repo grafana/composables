@@ -37,8 +37,16 @@ jobs:
           sudo apt-get install -y docker-compose
 
       - name: Install Tilt
+        env:
+          TILT_VERSION: "0.37.3"
+          TILT_CHECKSUM: "e90bc6cf70882bc7579d8174a27cab2de0284612ec7339e4b32f669cd5de4e5c"
         run: |
-          curl -fsSL https://raw.githubusercontent.com/tilt-dev/tilt/master/scripts/install.sh | bash
+          curl -fsSL -o tilt.tar.gz "https://github.com/tilt-dev/tilt/releases/download/v${TILT_VERSION}/tilt.${TILT_VERSION}.linux.x86_64.tar.gz"
+          echo "${TILT_CHECKSUM}  tilt.tar.gz" | sha256sum --check --strict
+          tar xzf tilt.tar.gz tilt
+          sudo cp tilt /usr/local/bin/tilt
+          rm -f tilt tilt.tar.gz
+          tilt verify-install
 
       - name: Load environment variables
         run: |
