@@ -4,7 +4,7 @@
 
 services:
   cert-provider:
-    image: alpine:latest
+    image: alpine:3.21@sha256:48b0309ca019d89d40f670aa1bc06e426dc0931948452e8491e3d65087abc07d
     volumes:
       - k3s-certs:/certs
     command:
@@ -110,7 +110,7 @@ services:
           - grafana-servicemodel-operator.default.svc.cluster.local
 
   k3s-apiserver:
-    image: rancher/k3s:latest
+    image: rancher/k3s:v1.33.12-k3s1@sha256:173eb786fa098114e49b4e3f9a2a711602451ef884961b0a821015f068e08209
     hostname: k3s-apiserver
     privileged: true
     depends_on:
@@ -156,7 +156,7 @@ services:
 
   # Sync kubeconfig to local filesystem for local kubectl access
   kubeconfig-sync:
-    image: alpine:latest
+    image: alpine:3.21@sha256:48b0309ca019d89d40f670aa1bc06e426dc0931948452e8491e3d65087abc07d
     depends_on:
       - k3s-apiserver
     volumes:

@@ -1,7 +1,7 @@
 services:
   bigquery-emulator:
     platform: linux/amd64
-    image: ghcr.io/goccy/bigquery-emulator:latest
+    image: ghcr.io/goccy/bigquery-emulator:0.7.0@sha256:429ffc6991ccebf4cb088276c9bbaf62c137b44ef15280ef4547601134fdd485
     container_name: grafana-assistant-bigquery
     restart: always
     ports:

@@ -122,7 +122,7 @@ def _build_aggregator_config_service(all_api_groups):
     return {
         'services': {
             'aggregator-config': {
-                'image': 'alpine:latest',
+                'image': 'alpine:3.21@sha256:48b0309ca019d89d40f670aa1bc06e426dc0931948452e8491e3d65087abc07d',
                 'entrypoint': ['/bin/sh'],
                 'command': [
                     '-c',
@@ -311,7 +311,7 @@ echo "=== User provisioning complete ==="
     return {
         'services': {
             'grafana-user-setup': {
-                'image': 'alpine:latest',
+                'image': 'alpine:3.21@sha256:48b0309ca019d89d40f670aa1bc06e426dc0931948452e8491e3d65087abc07d',
                 'depends_on': {
                     'grafana': {'condition': 'service_healthy'},
                 },
@@ -866,7 +866,7 @@ def test_process_accumulated_modifications_users():
     assert_true('grafana-user-setup' in result['services'], "Should create grafana-user-setup service")
 
     svc = result['services']['grafana-user-setup']
-    assert_equals(svc['image'], 'alpine:latest', "Should use alpine image")
+    assert_equals(svc['image'], 'alpine:3.21@sha256:48b0309ca019d89d40f670aa1bc06e426dc0931948452e8491e3d65087abc07d', "Should use alpine image")
     assert_true('grafana' in svc['depends_on'], "Should depend on grafana")
     assert_equals(svc['depends_on']['grafana']['condition'], 'service_healthy', "Should wait for healthy")
     assert_equals(svc['restart'], 'on-failure', "Should restart on failure")

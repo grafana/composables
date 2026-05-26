@@ -1,6 +1,6 @@
 services:
   mysql-test:
-    image: mysql:latest
+    image: mysql:9.7@sha256:c11782aa2a96624c1efc121768641d96954faa136d6aa82751b032d8c426ffbc
     container_name: grafana-assistant-mysql-test
     environment:
       MYSQL_ROOT_PASSWORD: rootpassword

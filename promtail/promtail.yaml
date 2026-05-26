@@ -1,6 +1,6 @@
 services:
   promtail:
-    image: grafana/promtail:latest
+    image: grafana/promtail:3.6.10@sha256:2a0f5e3e160ee5d549c585f6cc4f4e1c566ff783324a424bd75bc16503fc660e
     # NOTE: These volume mounts are Docker-specific and need adjustment for Podman:
     # - Docker: /var/lib/docker/containers and /var/run/docker.sock
     # - Podman: /run/podman/podman.sock (logs accessed differently)
