@@ -409,7 +409,7 @@ def _build_aggregator_config_service(all_api_groups):
     return {
         'services': {
             'aggregator-config': {
-                'image': 'alpine:latest',
+                'image': 'alpine:3.21@sha256:48b0309ca019d89d40f670aa1bc06e426dc0931948452e8491e3d65087abc07d',
                 'entrypoint': ['/bin/sh'],
                 'command': [
                     '-c',
@@ -1151,7 +1151,7 @@ echo "=== User provisioning complete ==="
     return {
         'services': {
             'grafana-user-setup': {
-                'image': 'alpine:latest',
+                'image': 'alpine:3.21@sha256:48b0309ca019d89d40f670aa1bc06e426dc0931948452e8491e3d65087abc07d',
                 'depends_on': {
                     'grafana': {'condition': 'service_healthy'},
                 },
@@ -1235,7 +1235,7 @@ def cc_wire_when(cc):
                 },
                 # Add aggregator-config service when k3s is present
                 'aggregator-config': {
-                    'image': 'alpine:latest',
+                    'image': 'alpine:3.21@sha256:48b0309ca019d89d40f670aa1bc06e426dc0931948452e8491e3d65087abc07d',
                     'volumes': [
                         'k3s-certs:/certs',
                     ],

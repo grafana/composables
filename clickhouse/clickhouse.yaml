@@ -1,6 +1,6 @@
 services:
   clickhouse:
-    image: clickhouse/clickhouse-server:latest
+    image: clickhouse/clickhouse-server:25.3@sha256:b627d7a9bc0e0c1bac26cdbe9d2fc6316faa29c5d8a174f28f5abd57d0fa6ba2
     container_name: grafana-assistant-clickhouse
     ports:
       - '${CLICKHOUSE_HTTP_PORT:-8123}:8123'  # HTTP port

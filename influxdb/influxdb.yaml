@@ -12,7 +12,7 @@
 
 services:
   influxdb:
-    image: quay.io/influxdb/influxdb3-core:latest
+    image: quay.io/influxdb/influxdb3-core:latest@sha256:d4275889d401ca635f498f52df66f1b947a66fa73b715dbf62de324bfcc4d8c7
     container_name: influxdb
     ports:
       - '8181:8181'

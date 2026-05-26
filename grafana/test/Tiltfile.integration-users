@@ -95,7 +95,7 @@ if __file__ == config.main_path:
     print("Checking grafana-user-setup service in staged file:")
 
     assert_contains(staged_content, "grafana-user-setup:", "grafana-user-setup service exists")
-    assert_contains(staged_content, "alpine:latest", "Uses alpine image")
+    assert_contains(staged_content, "alpine:3.21", "Uses alpine image")
     assert_contains(staged_content, "service_healthy", "Depends on grafana being healthy")
     assert_contains(staged_content, "GRAFANA_URL", "Has GRAFANA_URL env var")
     assert_contains(staged_content, "ADMIN_USER", "Has ADMIN_USER env var")

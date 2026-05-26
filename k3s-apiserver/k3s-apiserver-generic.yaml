@@ -5,7 +5,7 @@
 services:
   # Certificate cleanup - ensures fresh webhook certs on every startup
   cert-cleanup:
-    image: alpine:latest
+    image: alpine:3.21@sha256:48b0309ca019d89d40f670aa1bc06e426dc0931948452e8491e3d65087abc07d
     volumes:
       - k3s-certs:/certs
     command:
@@ -18,7 +18,7 @@ services:
     restart: "no"
 
   cert-provider:
-    image: alpine:latest
+    image: alpine:3.21@sha256:48b0309ca019d89d40f670aa1bc06e426dc0931948452e8491e3d65087abc07d
     depends_on:
       cert-cleanup:
         condition: service_completed_successfully
@@ -248,7 +248,7 @@ services:
           - grafana-servicemodel-operator.default.svc.cluster.local
 
   k3s-apiserver:
-    image: rancher/k3s:latest
+    image: rancher/k3s:v1.33.12-k3s1@sha256:173eb786fa098114e49b4e3f9a2a711602451ef884961b0a821015f068e08209
     hostname: k3s-apiserver
     privileged: true
     depends_on:
@@ -286,7 +286,7 @@ services:
 
   # Sync kubeconfig to local filesystem for local kubectl access
   kubeconfig-sync:
-    image: alpine:latest
+    image: alpine:3.21@sha256:48b0309ca019d89d40f670aa1bc06e426dc0931948452e8491e3d65087abc07d
     depends_on:
       - k3s-apiserver
     volumes:
@@ -308,7 +308,7 @@ services:
   # Generic CRD loader - loads Custom Resource Definitions into k3s
   # CRD paths are mounted at /crds/* by orchestrators via compose_composer 'crds' key
   crd-loader:
-    image: bitnami/kubectl:latest
+    image: bitnami/kubectl:latest@sha256:e2b97dde9666986c61c56d49aae85a714b89b69392baa531438e74ec34096fb4
     depends_on:
       - k3s-apiserver
     volumes:
@@ -361,7 +361,7 @@ services:
 
   # Generic admission webhook setup service - use register_admission_config() to customize
   admission-setup:
-    image: bitnami/kubectl:latest
+    image: bitnami/kubectl:latest@sha256:e2b97dde9666986c61c56d49aae85a714b89b69392baa531438e74ec34096fb4
     depends_on:
       - crd-loader  # Ensures CRDs are loaded first
     volumes:

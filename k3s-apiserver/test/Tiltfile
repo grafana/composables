@@ -129,7 +129,7 @@ def create_namespace(namespace_specs):
     return {
         'services': {
             service_name: {
-                'image': 'bitnami/kubectl:latest',
+                'image': 'bitnami/kubectl:latest@sha256:e2b97dde9666986c61c56d49aae85a714b89b69392baa531438e74ec34096fb4',
                 'depends_on': ['k3s-apiserver'],
                 'volumes': ['k3s-output:/output:ro'],
                 'entrypoint': ['/bin/sh'],
@@ -350,7 +350,7 @@ def test_create_namespace_service_config():
     service_name = list(result['services'].keys())[0]
     service = result['services'][service_name]
 
-    assert_equals(service['image'], 'bitnami/kubectl:latest', "Should use kubectl image")
+    assert_equals(service['image'], 'bitnami/kubectl:latest@sha256:e2b97dde9666986c61c56d49aae85a714b89b69392baa531438e74ec34096fb4', "Should use kubectl image")
     assert_in('k3s-apiserver', service['depends_on'], "Should depend on k3s-apiserver")
     assert_in('k3s-output:/output:ro', service['volumes'], "Should mount k3s-output volume")
     assert_equals(service['restart'], 'no', "Should not restart")

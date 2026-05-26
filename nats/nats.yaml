@@ -1,6 +1,6 @@
 services:
   nats:
-    image: nats:latest
+    image: nats:2.11@sha256:c991221cdddd53a24893cd18a90faf7a42396108496aed076bb982a349e76484
     ports:
       - '${NATS_PORT:-4222}:4222'  # Client connections
       - '${NATS_HTTP_PORT:-8222}:8222'  # HTTP monitoring
