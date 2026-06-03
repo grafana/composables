@@ -1,0 +1,7 @@
+# Second set of feature flags for multi-file accumulation test
+secondary-flag:
+  variations:
+    "on": true
+    "off": false
+  defaultRule:
+    variation: "on"

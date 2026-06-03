@@ -1,6 +1,12 @@
-# Integration test for goff register_flags() helper
-# Verifies that register_flags() injects flag content via the goff_flags config
-# (not a bind-mount volume), preventing the duplicate-mount issue.
+# Integration test for goff register_flags() and register_retriever() helpers
+# Verifies that:
+#   1. register_flags() volume-mounts flag files into the goff container
+#   2. Multiple flag files are accumulated (multi-caller pattern)
+#   3. register_retriever() adds custom retrievers to generated config (staged verification only)
+#   4. goff starts and evaluates flags from all registered sources
+#
+# Note: register_retriever() is verified at the staged-file level only (no live HTTP server).
+# The HTTP retriever uses startWithRetrieverError so goff starts despite no server.
 #
 # Run with: tilt ci -f Tiltfile.integration-register-flags (from this directory)
 
@@ -19,7 +25,8 @@ load('ext://compose_composer', 'cc_init')
 
 allow_k8s_contexts(k8s_context())
 
-FLAGS_FILE = os.path.dirname(__file__) + '/flags/test-flags.yaml'
+FLAGS_FILE_1 = os.path.dirname(__file__) + '/flags/test-flags.yaml'
+FLAGS_FILE_2 = os.path.dirname(__file__) + '/flags/test-flags-2.yaml'
 
 def cc_export(cc):
     goff = cc.use(name='goff', labels=['feature-flags'])
@@ -28,7 +35,13 @@ def cc_export(cc):
         os.path.dirname(__file__) + '/docker-compose.yaml',
         labels=['test'],
         modifications=[
-            goff.register_flags(FLAGS_FILE),
+            goff.register_flags(FLAGS_FILE_1),
+            goff.register_flags(FLAGS_FILE_2),
+            goff.register_retriever({
+                'kind': 'http',
+                'url': 'http://nonexistent-host:9999/flags.yaml',
+                'timeout': 1000,
+            }),
         ],
     )
 
@@ -40,12 +53,13 @@ if __file__ == config.main_path:
     cc = cc_init('goff-flags-test', composables_url=COMPOSABLES_URL)
 
     print("\n" + "=" * 70)
-    print("goff register_flags() Integration Test")
+    print("goff register_flags() + register_retriever() Integration Test")
     print("=" * 70)
     print("\nThis integration test verifies:")
-    print("  1. register_flags() injects flag content via goff_flags config")
-    print("  2. No bind-mount volume for flags in the staged compose")
-    print("  3. goff starts and evaluates the test flag via the OFREP API")
+    print("  1. register_flags() volume-mounts flag files into goff")
+    print("  2. Multiple flag files are accumulated (multi-caller)")
+    print("  3. Generated goff config has file retrievers for each source")
+    print("  4. goff evaluates flags from all registered sources")
     print("\nRunning compose_composer pipeline...")
     print("=" * 70 + "\n")
 
@@ -75,10 +89,25 @@ if __file__ == config.main_path:
             fail("INTEGRATION TEST FAILED: " + description + "\n  Expected NOT to find: " + repr(substring))
         print("  [PASS] " + description)
 
-    assert_contains(staged_content, "goff_flags:", "staged file has goff_flags config entry")
-    assert_contains(staged_content, "test-flag:", "staged file contains injected test-flag key")
-    assert_not_contains(staged_content, "GOFF_FLAGS_PATH", "no GOFF_FLAGS_PATH env var (volume approach removed)")
-    assert_not_contains(staged_content, "/dev/null", "no /dev/null fallback volume in staged file")
+    # Volume mounts for both flag files
+    assert_contains(staged_content, "flags/test-flags.yaml:/flags/flags-0.yaml:ro", "first flags file is volume-mounted")
+    assert_contains(staged_content, "flags/test-flags-2.yaml:/flags/flags-1.yaml:ro", "second flags file is volume-mounted")
+
+    # Generated config is mounted
+    assert_contains(staged_content, "goff-config.yaml:/config/config.yaml:ro", "generated config is volume-mounted")
+
+    # No baked-in Docker config for flags (old pattern removed)
+    assert_not_contains(staged_content, "goff_flags:", "no goff_flags Docker config (volume mounts used instead)")
+
+    # Verify generated config file
+    generated_config = str(read_file(os.path.dirname(__file__) + '/.cc/goff-config.yaml'))
+    assert_contains(generated_config, 'kind: "file"', "generated config has file retriever")
+    assert_contains(generated_config, "/flags/flags-0.yaml", "generated config references first flag file")
+    assert_contains(generated_config, "/flags/flags-1.yaml", "generated config references second flag file")
+    assert_contains(generated_config, "pollingInterval: 5000", "generated config has polling interval")
+    assert_contains(generated_config, 'kind: "http"', "generated config has HTTP retriever")
+    assert_contains(generated_config, "nonexistent-host:9999", "generated config has HTTP retriever URL")
+    assert_contains(generated_config, "startWithRetrieverError: true", "generated config has startWithRetrieverError")
 
     # ========================================================================
     # Start services and verify flag evaluation via OFREP API
@@ -93,7 +122,7 @@ if __file__ == config.main_path:
     local_resource(
         'verify-flags',
         cmd='''
-echo "=== Verifying goff register_flags() ==="
+echo "=== Verifying goff multi-file flag registration ==="
 
 GOFF_URL="http://localhost:${GOFF_PORT:-1031}"
 MAX_RETRIES=30
@@ -118,20 +147,36 @@ PASS=0
 FAIL=0
 
 echo ""
-echo "--- Evaluating test-flag via OFREP API ---"
+echo "--- Evaluating test-flag (from first file) ---"
 RESPONSE=$(curl -sf -X POST \
   -H "Content-Type: application/json" \
   -d '{"context":{"targetingKey":"test-user"}}' \
   "$GOFF_URL/ofrep/v1/evaluate/flags/test-flag" 2>/dev/null || echo "")
 
 echo "Response: $RESPONSE"
-
 FLAG_VALUE=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin).get('value',''))" 2>/dev/null || echo "")
 if [ "$FLAG_VALUE" = "True" ] || [ "$FLAG_VALUE" = "true" ]; then
-  echo "  [PASS] test-flag evaluated to true (default rule)"
+  echo "  [PASS] test-flag evaluated to true"
   PASS=$((PASS + 1))
 else
   echo "  [FAIL] expected test-flag value true, got '$FLAG_VALUE'"
+  FAIL=$((FAIL + 1))
+fi
+
+echo ""
+echo "--- Evaluating secondary-flag (from second file) ---"
+RESPONSE=$(curl -sf -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"context":{"targetingKey":"test-user"}}' \
+  "$GOFF_URL/ofrep/v1/evaluate/flags/secondary-flag" 2>/dev/null || echo "")
+
+echo "Response: $RESPONSE"
+FLAG_VALUE=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin).get('value',''))" 2>/dev/null || echo "")
+if [ "$FLAG_VALUE" = "True" ] || [ "$FLAG_VALUE" = "true" ]; then
+  echo "  [PASS] secondary-flag evaluated to true"
+  PASS=$((PASS + 1))
+else
+  echo "  [FAIL] expected secondary-flag value true, got '$FLAG_VALUE'"
   FAIL=$((FAIL + 1))
 fi
 

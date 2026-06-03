@@ -4,28 +4,170 @@
 # Exports:
 #   cc_export(cc)      - Returns plugin struct for compose_composer
 #   cc_wire_when(cc)   - Conditional wiring rules (auto-configure Grafana OpenFeature)
-#   register_flags(cc, flags_path) - Helper to mount a feature flags file into goff
+#   register_flags(cc, flags_path) - Register a feature flags file (volume-mounted, live-reloads)
+#   register_retriever(cc, retriever) - Register a custom retriever (HTTP, S3, etc.)
+#   process_accumulated_modifications(all_modifications, orchestrator_dir) - Generate goff config from accumulated markers
 
 def register_flags(cc, flags_path):
     """
-    Provide a feature flags YAML file to the goff container.
+    Register a feature flags YAML file with goff.
+
+    The file is volume-mounted into the goff container and a file retriever is
+    added to the generated config. Changes on the host are picked up by goff's
+    polling interval (no restart needed).
+
+    Multiple callers can register flags; all files are mounted and retrieved.
 
     Args:
         cc: Orchestrator's cc struct (injected by compose_composer)
         flags_path: Absolute path to a YAML file containing feature flag definitions
 
     Returns:
-        Dict with compose_overrides to inject the flags file content
+        Marker dict for compose_composer accumulation
 
     Example:
         goff.register_flags(os.path.dirname(__file__) + '/provisioning/goff-flags.yaml')
     """
     return {
-        'configs': {
-            'goff_flags': {
-                'content': str(read_file(flags_path)),
+        '_goff_flags_path': flags_path,
+        '_target': 'goff',
+    }
+
+def register_retriever(cc, retriever):
+    """
+    Register a custom retriever for goff to poll.
+
+    Use this for non-file sources such as an HTTP endpoint (e.g. mickflaggr).
+    Custom retrievers are appended after file retrievers, so they take
+    precedence for duplicate flag keys.
+
+    Args:
+        cc: Orchestrator's cc struct (injected by compose_composer)
+        retriever: Dict matching goff retriever config, e.g.
+                   {'kind': 'http', 'url': 'http://mickflaggr:1033/flags.goff.yaml', 'timeout': 10000}
+
+    Returns:
+        Marker dict for compose_composer accumulation
+
+    Example:
+        goff.register_retriever({
+            'kind': 'http',
+            'url': 'http://mickflaggr:1033/flags.goff.yaml',
+            'timeout': 10000,
+        })
+    """
+    if type(retriever) != 'dict' or 'kind' not in retriever:
+        fail('register_retriever: retriever must be a dict with a "kind" field, got: ' + str(retriever))
+    return {
+        '_goff_retriever': retriever,
+        '_target': 'goff',
+    }
+
+def _yaml_value(val):
+    """Format a value for YAML output. Strings are always quoted for safety."""
+    if type(val) == 'bool':
+        return 'true' if val else 'false'
+    if type(val) == 'int':
+        return str(val)
+    if type(val) == 'string':
+        return '"' + val.replace('\\', '\\\\').replace('"', '\\"') + '"'
+    fail('_yaml_value: unsupported type ' + type(val) + ' for value: ' + str(val))
+
+def _build_retriever_yaml(retriever, indent):
+    """Build YAML lines for a single retriever entry."""
+    prefix = ' ' * indent
+    lines = [prefix + '- kind: ' + _yaml_value(retriever['kind'])]
+    for key in sorted(retriever.keys()):
+        if key == 'kind':
+            continue
+        lines.append(prefix + '  ' + key + ': ' + _yaml_value(retriever[key]))
+    return lines
+
+def process_accumulated_modifications(all_modifications, orchestrator_dir):
+    """
+    Collect all goff config markers and generate combined goff config.
+
+    This callback is automatically invoked by compose_composer AFTER collecting
+    all modifications from root + CLI plugins.
+
+    It processes two marker types:
+      _goff_flags_path  - file paths to volume-mount and add as file retrievers
+      _goff_retriever   - custom retriever dicts (HTTP, S3, etc.)
+
+    Args:
+        all_modifications: List of all modification dicts from all plugins
+        orchestrator_dir: Directory for generating config files
+
+    Returns:
+        Dict with compose_overrides for volumes and generated config,
+        or {} if no configuration markers found
+    """
+    flags_paths = []
+    custom_retrievers = []
+
+    for mod in all_modifications:
+        if type(mod) == 'dict':
+            if '_goff_flags_path' in mod:
+                flags_paths.append(mod['_goff_flags_path'])
+            if '_goff_retriever' in mod:
+                custom_retrievers.append(mod['_goff_retriever'])
+
+    if not flags_paths and not custom_retrievers:
+        return {}
+
+    # Build volume mounts and file retrievers for registered flag files
+    volumes = []
+    retrievers = []
+    for i, path in enumerate(flags_paths):
+        container_path = '/flags/flags-%d.yaml' % i
+        volumes.append(path + ':' + container_path + ':ro')
+        retrievers.append({'kind': 'file', 'path': container_path})
+        print('[goff] Registered flags: %s -> %s' % (path, container_path))
+
+    # Append custom retrievers (after file retrievers so they take precedence)
+    for r in custom_retrievers:
+        retrievers.append(r)
+        if r.get('kind') == 'http':
+            print('[goff] Registered HTTP retriever: %s' % r.get('url', ''))
+        else:
+            print('[goff] Registered %s retriever' % r.get('kind', 'unknown'))
+
+    # Build goff config YAML
+    config_lines = [
+        'logLevel: info',
+        'logFormat: logfmt',
+        'listen: 1031',
+        'startWithRetrieverError: true',
+    ]
+    config_lines.extend([
+        'pollingInterval: 5000',
+        'evaluationContextEnrichment:',
+        '  cluster: localdev',
+    ])
+
+    if retrievers:
+        config_lines.append('retrievers:')
+        for r in retrievers:
+            config_lines.extend(_build_retriever_yaml(r, 2))
+
+    config_content = '\n'.join(config_lines) + '\n'
+
+    # Write config to staging directory
+    staging_dir = orchestrator_dir + '/.cc'
+    config_path = staging_dir + '/goff-config.yaml'
+    local('mkdir -p ' + staging_dir, quiet=True)
+    local('cat > ' + config_path + " <<'EOF'\n" + config_content + 'EOF\n', quiet=True)
+    print('[goff] Generated config: ' + config_path)
+
+    all_volumes = volumes + [config_path + ':/config/config.yaml:ro']
+
+    return {
+        'services': {
+            'goff': {
+                'volumes': all_volumes,
             },
         },
+        '_target': 'goff',
     }
 
 def cc_export(cc):
