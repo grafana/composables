@@ -112,9 +112,6 @@ def process_accumulated_modifications(all_modifications, orchestrator_dir):
             if '_goff_retriever' in mod:
                 custom_retrievers.append(mod['_goff_retriever'])
 
-    if not flags_paths and not custom_retrievers:
-        return {}
-
     # Build volume mounts and file retrievers for registered flag files
     volumes = []
     retrievers = []
@@ -136,9 +133,11 @@ def process_accumulated_modifications(all_modifications, orchestrator_dir):
     config_lines = [
         'logLevel: info',
         'logFormat: logfmt',
-        'listen: 1031',
-        'startWithRetrieverError: true',
+        'server:',
+        '  port: 1031',
     ]
+    if retrievers:
+        config_lines.append('startWithRetrieverError: true')
     config_lines.extend([
         'pollingInterval: 5000',
         'evaluationContextEnrichment:',
