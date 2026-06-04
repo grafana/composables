@@ -1,5 +1,9 @@
 # Go Feature Flag Server for Development
 # Provides feature flag evaluation via OFREP protocol
+#
+# Config is delivered via volume mount, not Docker configs, so that
+# process_accumulated_modifications() can generate and mount a config
+# without conflicting with a pre-existing Docker config at the same path.
 
 services:
   goff:
@@ -7,27 +11,3 @@ services:
     command: /go-feature-flag --config /config/config.yaml
     ports:
       - '${GOFF_PORT:-1031}:1031'
-    healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:1031/health"]
-      interval: 5s
-      timeout: 3s
-      retries: 3
-    configs:
-      - source: goff_config
-        target: /config/config.yaml
-      - source: goff_flags
-        target: /flags/flags.yaml
-
-configs:
-  goff_flags:
-    content: ""
-  goff_config:
-    content: |
-      logLevel: info
-      logFormat: logfmt
-      listen: 1031
-      evaluationContextEnrichment:
-        cluster: localdev
-      retrievers:
-        - kind: "file"
-          path: "/flags/flags.yaml"
