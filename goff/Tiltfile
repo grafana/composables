@@ -58,6 +58,10 @@ def register_retriever(cc, retriever):
     """
     if type(retriever) != 'dict' or 'kind' not in retriever:
         fail('register_retriever: retriever must be a dict with a "kind" field, got: ' + str(retriever))
+    for key in retriever:
+        val = retriever[key]
+        if type(val) not in ('string', 'int', 'bool'):
+            fail('register_retriever: value for "%s" must be string, int, or bool (got %s). Nested dicts/lists are not supported.' % (key, type(val)))
     return {
         '_goff_retriever': retriever,
         '_target': 'goff',
@@ -99,8 +103,9 @@ def process_accumulated_modifications(all_modifications, orchestrator_dir):
         orchestrator_dir: Directory for generating config files
 
     Returns:
-        Dict with compose_overrides for volumes and generated config,
-        or {} if no configuration markers found
+        Dict with compose_overrides for volumes and generated config.
+        Always produces a baseline config even when no markers are present,
+        so goff starts with sane defaults.
     """
     flags_paths = []
     custom_retrievers = []
@@ -154,8 +159,8 @@ def process_accumulated_modifications(all_modifications, orchestrator_dir):
     # Write config to staging directory
     staging_dir = orchestrator_dir + '/.cc'
     config_path = staging_dir + '/goff-config.yaml'
-    local('mkdir -p ' + staging_dir, quiet=True)
-    local('cat > ' + config_path + " <<'EOF'\n" + config_content + 'EOF\n', quiet=True)
+    local('mkdir -p "' + staging_dir + '"', quiet=True)
+    local('cat > "' + config_path + "\" <<'EOF'\n" + config_content + 'EOF\n', quiet=True)
     print('[goff] Generated config: ' + config_path)
 
     all_volumes = volumes + [config_path + ':/config/config.yaml:ro']
