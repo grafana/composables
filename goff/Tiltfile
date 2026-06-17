@@ -147,6 +147,11 @@ def process_accumulated_modifications(all_modifications, orchestrator_dir):
         'pollingInterval: 5000',
         'evaluationContextEnrichment:',
         '  cluster: localdev',
+        # Enable admin API so external tools (e.g. mickflaggr) can trigger
+        # immediate flag reloads via POST /admin/v1/retriever/refresh
+        'authorizedKeys:',
+        '  admin:',
+        '    - admin',
     ])
 
     if retrievers:
