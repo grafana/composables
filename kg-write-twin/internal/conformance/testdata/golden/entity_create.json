@@ -1,0 +1,17 @@
+{
+  "status": 201,
+  "body": {
+    "domain": "irm",
+    "name": "c1",
+    "properties": {
+      "_domain": "irm",
+      "_expires_at": 0,
+      "_origin": "api",
+      "k": "v"
+    },
+    "scope": {
+      "env": "prod"
+    },
+    "type": "Team"
+  }
+}

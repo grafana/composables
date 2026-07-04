@@ -1,0 +1,13 @@
+{
+  "status": 200,
+  "body": {
+    "domain": "irm",
+    "name": "u1",
+    "properties": {
+      "_domain": "irm",
+      "_expires_at": 0,
+      "_origin": "api"
+    },
+    "type": "Team"
+  }
+}

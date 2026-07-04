@@ -1,0 +1,7 @@
+{
+  "status": 404,
+  "body": {
+    "message": "to entity not found",
+    "status": "NOT_FOUND"
+  }
+}

@@ -1,0 +1,17 @@
+services:
+  kg-write-twin:
+    build:
+      context: .
+      dockerfile: ./Dockerfile
+    image: kg-write-twin:dev
+    # Port is overridable via KG_WRITE_TWIN_PORT (defaults to 8030 standalone).
+    # Orchestrators that embed this composable (e.g. gamma's cc/up) set it to a
+    # non-conflicting port.
+    ports:
+      - "${KG_WRITE_TWIN_PORT:-8030}:${KG_WRITE_TWIN_PORT:-8030}"
+    environment:
+      PORT: "${KG_WRITE_TWIN_PORT:-8030}"
+      BASE_PATH: /api-server
+    # No healthcheck: the distroless image has no shell/curl, and the binary has
+    # no exit-0 self-check flag. Liveness is available at
+    # GET /api-server/_control/healthz for callers that want to probe it.

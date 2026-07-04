@@ -1,0 +1,15 @@
+{
+  "status": 422,
+  "body": {
+    "message": "Invalid request: ServletWebRequest",
+    "status": "UNPROCESSABLE_ENTITY",
+    "subErrors": [
+      {
+        "@type": "ApiValidationError",
+        "field": "domain",
+        "message": "domain must be a lowercase k8s-style slug and not the reserved 'kg'",
+        "rejectedValue": "kg"
+      }
+    ]
+  }
+}

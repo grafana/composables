@@ -1,0 +1,7 @@
+{
+  "status": 415,
+  "body": {
+    "message": "Content-Type 'text/plain' is not supported",
+    "status": "UNSUPPORTED_MEDIA_TYPE"
+  }
+}
