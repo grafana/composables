@@ -74,5 +74,16 @@ func Scenarios() []Scenario {
 			{Method: "POST", Path: entities, Headers: jsonHdr, Body: `{"domain":"irm","type":"Team","name":"r2-from","ttlSeconds":3600}`}},
 			Request: Request{Method: "POST", Path: rels, Headers: jsonHdr,
 				Body: `{"domain":"irm","type":"owns","from":{"domain":"irm","type":"Team","name":"r2-from"},"to":{"domain":"irm","type":"Service","name":"ghost"},"ttlSeconds":3600}`}},
+		// The KG Write API validates entity/relationship `type` against the
+		// identifier contract ^[A-Za-z][A-Za-z0-9_]*$; values containing ':' or
+		// '-' (e.g. raw Gamma relation types) must be rejected with 422.
+		{Name: "entity_bad_type_422",
+			Request: Request{Method: "POST", Path: entities, Headers: jsonHdr,
+				Body: `{"domain":"irm","type":"Foo-Bar","name":"x","ttlSeconds":10}`}},
+		{Name: "relationship_bad_type_422", Setup: []Request{
+			{Method: "POST", Path: entities, Headers: jsonHdr, Body: `{"domain":"irm","type":"Team","name":"bt-from","ttlSeconds":3600}`},
+			{Method: "POST", Path: entities, Headers: jsonHdr, Body: `{"domain":"irm","type":"Service","name":"bt-to","ttlSeconds":3600}`}},
+			Request: Request{Method: "POST", Path: rels, Headers: jsonHdr,
+				Body: `{"domain":"irm","type":"depends-on","from":{"domain":"irm","type":"Team","name":"bt-from"},"to":{"domain":"irm","type":"Service","name":"bt-to"},"ttlSeconds":3600}`}},
 	}
 }

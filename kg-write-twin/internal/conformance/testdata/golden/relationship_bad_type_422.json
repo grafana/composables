@@ -1,0 +1,15 @@
+{
+  "status": 422,
+  "body": {
+    "message": "Invalid request: ServletWebRequest",
+    "status": "UNPROCESSABLE_ENTITY",
+    "subErrors": [
+      {
+        "@type": "ApiValidationError",
+        "field": "type",
+        "message": "type must be a valid identifier",
+        "rejectedValue": "depends-on"
+      }
+    ]
+  }
+}
