@@ -18,6 +18,10 @@ concurrency:
   group: '${{ github.ref_name }}-${{ github.head_ref }}'
   cancel-in-progress: true
 
+# The workflow only checks out code and runs tests; it needs no write access.
+permissions:
+  contents: read
+
 jobs:
   test:
     name: Test all composables
