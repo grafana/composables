@@ -2,26 +2,28 @@ BINARY := bin/kg-write-twin
 IMAGE  := kg-write-twin:dev
 UPSTREAM := repos/grafana/asserts-adi/contents/inference-engine/api-server/openapi/kg-write.yaml
 
-# `test` is the composable contract used by the top-level Makefile: it runs the
-# compose_composer integration test (builds the image from source and brings the
-# service up through the pipeline). Requires docker + tilt, not a host Go toolchain.
+# `test` is the composable contract used by the top-level Makefile. Unlike other
+# composables, this one is a behavioral twin, so `test` gates API fidelity
+# (Go unit + hermetic conformance tests) in addition to the compose_composer
+# integration test. Requires a Go toolchain + docker + tilt (CI installs Go).
 .PHONY: test
-test: integration-test
+test: unit-test integration-test
+
+.PHONY: unit-test
+unit-test:
+	go test ./...
 
 .PHONY: integration-test
 integration-test:
-		@(cd test; tilt -f Tiltfile.integration ci; tilt -f Tiltfile.integration down)
+		@(cd test; tilt -f Tiltfile.integration ci; status=$$?; tilt -f Tiltfile.integration down; exit $$status)
 
 # ----------------------------------------------------------------------------
-# Go dev targets (require a local Go toolchain; not run by the composable suite)
+# Go dev targets (require a local Go toolchain)
 # ----------------------------------------------------------------------------
-.PHONY: build go-test run docker record check-spec-drift tidy
+.PHONY: build run docker record check-spec-drift tidy
 
 build:
 	go build -o $(BINARY) ./cmd/kg-write-twin
-
-go-test:
-	go test ./...
 
 run:
 	go run ./cmd/kg-write-twin
