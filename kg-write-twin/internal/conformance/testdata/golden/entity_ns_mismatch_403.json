@@ -1,0 +1,7 @@
+{
+  "status": 403,
+  "body": {
+    "message": "namespace does not match the request tenant",
+    "status": "FORBIDDEN"
+  }
+}

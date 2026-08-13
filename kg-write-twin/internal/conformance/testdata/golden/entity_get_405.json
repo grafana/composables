@@ -1,0 +1,7 @@
+{
+  "status": 405,
+  "body": {
+    "message": "Request method 'GET' is not supported",
+    "status": "METHOD_NOT_ALLOWED"
+  }
+}

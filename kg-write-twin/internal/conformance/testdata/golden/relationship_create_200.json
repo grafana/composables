@@ -1,0 +1,24 @@
+{
+  "status": 200,
+  "body": {
+    "domain": "irm",
+    "from": {
+      "domain": "irm",
+      "name": "r-from",
+      "scope": {},
+      "type": "Team"
+    },
+    "properties": {
+      "_domain": "irm",
+      "_expires_at": 0,
+      "_origin": "api"
+    },
+    "to": {
+      "domain": "irm",
+      "name": "r-to",
+      "scope": {},
+      "type": "Service"
+    },
+    "type": "owns"
+  }
+}

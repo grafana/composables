@@ -1,0 +1,7 @@
+{
+  "status": 424,
+  "body": {
+    "message": "No tenant selected for request",
+    "status": "FAILED_DEPENDENCY"
+  }
+}

@@ -1,0 +1,23 @@
+# kg-write-twin Tilt Extension
+# In-memory behavioral twin of the Asserts Knowledge Graph Write API.
+# Provides a local stand-in for the KG write service for development/testing.
+#
+# Exports:
+#   cc_export(cc)  - Returns plugin struct for compose_composer
+#
+# The image is built from the vendored Go source via the Dockerfile referenced
+# in kg-write-twin.yaml, so no host Go toolchain is required.
+
+_current_dir = os.path.dirname(__file__)
+
+def cc_export(cc):
+    """Returns the plugin struct for compose_composer."""
+    return cc.create(
+        'kg-write-twin',
+        _current_dir + '/kg-write-twin.yaml',
+        labels=['app'],
+    )
+
+# Standalone mode — `tilt up -f Tiltfile`.
+if __file__ == config.main_path:
+    docker_compose(_current_dir + '/kg-write-twin.yaml')

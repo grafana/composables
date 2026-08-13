@@ -1,0 +1,7 @@
+{
+  "status": 400,
+  "body": {
+    "message": "namespace must be of the form 'stacks-\u003cstackId\u003e'",
+    "status": "BAD_REQUEST"
+  }
+}
