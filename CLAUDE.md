@@ -154,3 +154,4 @@ Integration tests load compose_composer, run the full pipeline, and verify stage
 ## CI
 
 GitHub Actions workflow at `.github/workflows/test.yml` runs `make test` on every PR and push to main. Each composable's Makefile runs `tilt ci -f Tiltfile.integration` in its test directory. Environment overrides loaded from `.env.docker-compose` (e.g., custom ports to avoid conflicts).
+- Security issues should be reported via [Grafana's security issue reporting page](https://grafana.com/legal/report-a-security-issue/) and not directly in this repository.
