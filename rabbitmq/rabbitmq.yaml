@@ -4,7 +4,11 @@
 
 services:
   rabbitmq:
-    image: rabbitmq:3-management
+    # Overridable so a consumer can develop against a broker version other than the default,
+    # e.g. testing a 3.x -> 4.x upgrade before committing to it. Note that RabbitMQ will not boot
+    # on a data directory written by a different major version, so remove the rabbitmq-data volume
+    # when changing this.
+    image: rabbitmq:${RABBITMQ_IMAGE_TAG:-3-management}
     user: root
     command: >
       sh -c "chown -R rabbitmq:rabbitmq /var/lib/rabbitmq &&
