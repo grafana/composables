@@ -161,6 +161,12 @@ def register_plugin(cc, plugin_specs):
                 If not specified, plugin is always registered (backward compatible).
                 Example: ['irm-app', 'oncall-app']
 
+            - v3: bool (optional, default False)
+                The plugin verifies Grafana-signed plugin (v3) requests. Its ID is added
+                to GF_PLUGINS_FORWARD_HOST_ENV_VARS, so it receives Grafana's environment
+                (for example GRAFANA_JWKS_URL). Other composables can read the
+                _grafana_v3_plugins marker, for example to set signer token audiences.
+
     Returns:
         Dict with compose_overrides structure targeting grafana service
 
@@ -221,6 +227,7 @@ def register_plugin(cc, plugin_specs):
     depends_on = []
     unsigned_plugins = []
     feature_toggles = []
+    v3_plugins = []
 
     for spec in plugin_specs:
         # Validate required fields (type already validated during filtering)
@@ -280,6 +287,9 @@ def register_plugin(cc, plugin_specs):
         # Collect unsigned plugin name
         unsigned_plugins.append(name)
 
+        if spec.get('v3', False):
+            v3_plugins.append(name)
+
         # Collect feature toggles (optional)
         if 'feature_toggles' in spec:
             toggles = spec['feature_toggles']
@@ -314,6 +324,10 @@ def register_plugin(cc, plugin_specs):
     if feature_toggles:
         # Concatenate all feature toggles with commas
         result['services']['grafana']['environment']['GF_FEATURE_TOGGLES_ENABLE'] = ','.join(feature_toggles)
+
+    # Marker for process_accumulated_modifications() and other composables (not applied as compose overrides)
+    if v3_plugins:
+        result['_grafana_v3_plugins'] = v3_plugins
 
     return result
 
@@ -709,6 +723,12 @@ def process_accumulated_modifications(all_modifications, orchestrator_dir):
     ini_sections, ini_list_env = _collect_ini(all_modifications)
     for k, v in ini_list_env.items():
         all_env_vars[k] = _merge_csv(all_env_vars.get(k, ''), v)
+
+    # v3 plugins need Grafana's environment forwarded to the plugin process.
+    for mod in all_modifications:
+        if type(mod) == 'dict' and '_grafana_v3_plugins' in mod:
+            key = 'GF_PLUGINS_FORWARD_HOST_ENV_VARS'
+            all_env_vars[key] = _merge_csv(all_env_vars.get(key, ''), ','.join(mod['_grafana_v3_plugins']))
 
     if all_env_vars:
         print("[grafana] Setting {} environment vars".format(len(all_env_vars)))

@@ -47,6 +47,14 @@ def cc_export(cc):
             # Test ini accumulation: two helpers feed one generated grafana-cc.ini
             grafana.set_stack_id(123),
             grafana.register_ini({'auth.extended_jwt': {'enabled': True}}),
+            # Test v3 plugin flag: plugin ID merges into forward_host_env_vars
+            grafana.register_environment({'GF_PLUGINS_FORWARD_HOST_ENV_VARS': 'other-app'}),
+            grafana.register_plugin([{
+                'name': 'test-v3-app',
+                'dist': os.path.dirname(__file__) + '/fixtures',
+                'provisioning_file': os.path.dirname(__file__) + '/fixtures/sample.ini',
+                'v3': True,
+            }]),
         ],
     )
 
@@ -147,6 +155,10 @@ if __file__ == config.main_path:
     assert_contains(ini_content, "[environment]\nstack_id = 123", "stack_id in generated ini")
     assert_contains(ini_content, "[auth.extended_jwt]\nenabled = true", "register_ini section in generated ini")
 
+    print("\nChecking register_plugin(v3=True) modifications:")
+
+    assert_contains(staged_content, "GF_PLUGINS_FORWARD_HOST_ENV_VARS: other-app,test-v3-app", "v3 plugin merged into forward_host_env_vars")
+
     print("\n" + "=" * 70)
     print("✅ ALL INTEGRATION TESTS PASSED")
     print("=" * 70)
@@ -156,6 +168,7 @@ if __file__ == config.main_path:
     print("  • Kubernetes integration from k3s-apiserver wire-when")
     print("  • API aggregation config from register_aggregator_config()")
     print("  • Generated grafana-cc.ini from set_stack_id() and register_ini()")
+    print("  • v3 plugin forwarded host env vars from register_plugin()")
     print("  • All expected values present in staged grafana.yaml")
     print("\nTo start services with this configuration:")
     print("  tilt up -f Tiltfile.integration")

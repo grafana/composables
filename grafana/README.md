@@ -59,6 +59,7 @@ Register Grafana plugins with automatic provisioning file generation.
   - `depends_on` (optional): Service dependencies
   - `feature_toggles` (optional): Comma-separated feature toggles
   - `profiles` (optional): Only register if profile is active
+  - `v3` (optional): `True` if the plugin verifies Grafana-signed plugin (v3) requests. The plugin ID is added to `GF_PLUGINS_FORWARD_HOST_ENV_VARS`, so the plugin receives Grafana's environment (for example `GRAFANA_JWKS_URL`). Other composables can read the `_grafana_v3_plugins` marker, for example to set the audiences of a signer token.
 
 **Example:**
 ```python

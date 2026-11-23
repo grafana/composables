@@ -632,6 +632,11 @@ def process_accumulated_modifications(all_modifications, orchestrator_dir):
     for k, v in ini_list_env.items():
         all_env_vars[k] = _merge_csv(all_env_vars.get(k, ''), v)
 
+    for mod in all_modifications:
+        if type(mod) == 'dict' and '_grafana_v3_plugins' in mod:
+            key = 'GF_PLUGINS_FORWARD_HOST_ENV_VARS'
+            all_env_vars[key] = _merge_csv(all_env_vars.get(key, ''), ','.join(mod['_grafana_v3_plugins']))
+
     if all_env_vars:
         if 'services' in result:
             if 'grafana' in result['services']:
@@ -1455,6 +1460,29 @@ def test_external_paths_config_list_env():
     print("  [PASS] test_external_paths_config_list_env")
 
 # ============================================================================
+# register_plugin v3 Tests
+# ============================================================================
+
+def test_process_accumulated_v3_plugins_forward_env():
+    """Test v3 plugin IDs merge into GF_PLUGINS_FORWARD_HOST_ENV_VARS with other callers' values."""
+    mods = [
+        register_environment({'GF_PLUGINS_FORWARD_HOST_ENV_VARS': 'grafana-assistant-app'}),
+        {'services': {'grafana': {}}, '_grafana_v3_plugins': ['grafana-aigateway-app'], '_target': 'grafana'},
+        {'services': {'grafana': {}}, '_grafana_v3_plugins': ['grafana-aigateway-app'], '_target': 'grafana'},
+    ]
+    env = process_accumulated_modifications(mods, '/tmp')['services']['grafana']['environment']
+    assert_equals(env['GF_PLUGINS_FORWARD_HOST_ENV_VARS'], 'grafana-assistant-app,grafana-aigateway-app',
+                  "v3 plugin added once")
+    print("  [PASS] test_process_accumulated_v3_plugins_forward_env")
+
+def test_tiltfile_register_plugin_emits_v3_marker():
+    """Test register_plugin in Tiltfile reads the v3 flag and emits the marker."""
+    content = str(read_file(os.path.dirname(__file__) + '/../Tiltfile'))
+    assert_in("spec.get('v3', False)", content, "Should read v3 flag")
+    assert_in("result['_grafana_v3_plugins'] = v3_plugins", content, "Should emit _grafana_v3_plugins marker")
+    print("  [PASS] test_tiltfile_register_plugin_emits_v3_marker")
+
+# ============================================================================
 # install_plugins Tests
 # ============================================================================
 
@@ -1701,6 +1729,10 @@ def run_tests():
     test_process_accumulated_no_ini_no_paths_config()
     test_process_accumulated_ini_external_paths_config_wins()
     test_external_paths_config_list_env()
+
+    print("\n=== register_plugin v3 Tests ===")
+    test_process_accumulated_v3_plugins_forward_env()
+    test_tiltfile_register_plugin_emits_v3_marker()
 
     print("\n=== install_plugins Tests ===")
     test_install_plugins_returns_marker()
