@@ -246,6 +246,49 @@ grafana.register_environment({
 })
 ```
 
+### `register_ini(settings)`
+
+Add settings to a generated Grafana config file. This is an **accumulating helper**. All settings from all callers are merged into one file, `.cc/grafana-cc.ini`. The file is mounted at `/etc/grafana/grafana-cc.ini`, and `GF_PATHS_CONFIG` points at it.
+
+Use it for settings that environment variables cannot set:
+- Sections that do not exist in Grafana's `defaults.ini`, such as `[plugin.<id>]`.
+- Values that Grafana only expands in the ini file, such as `$__file{...}`.
+
+**Parameters:**
+- `settings`: Dict of section name to a dict of key to value. Values can be strings, numbers or bools. Use `''` for keys without a section.
+
+**Merge rules:**
+- If two callers set the same key to different values, the Tiltfile fails to load, and the error shows both values.
+- List settings (`[plugins] forward_host_env_vars`, `[plugins] allow_loading_unsigned_plugins`, `[feature_toggles] enable`) are merged and set as their `GF_*` environment variables, because environment variables override ini values.
+- `GF_PATHS_CONFIG` is only set when at least one caller registers ini settings.
+- If another composable sets `GF_PATHS_CONFIG` on the `grafana` service, that value is kept and the generated file is not used. A warning is printed. This keeps existing setups working while they migrate. New code should use `register_ini()` instead of setting `GF_PATHS_CONFIG`.
+
+**Example:**
+```python
+grafana.register_ini({
+    'auth.extended_jwt': {'enabled': True, 'jwks_url': 'http://authapi:4200/v1/keys'},
+    'plugin.grafana-aigateway-app': {'access_mode': 'cloud'},
+})
+```
+
+### `register_ini_file(path)`
+
+Add every setting in an ini file, with the same merge rules as `register_ini()`. The parser supports `[section]` headers, `key = value` lines, and full-line `;` or `#` comments.
+
+**Example:**
+```python
+grafana.register_ini_file(os.path.dirname(__file__) + '/config/grafana.ini')
+```
+
+### `set_stack_id(stack_id)`
+
+Set the Grafana stack ID, so Kubernetes resources use the namespace `stacks-<id>`. This adds `[environment] stack_id` through `register_ini()` and sets `GF_ENVIRONMENT_STACK_ID`.
+
+**Example:**
+```python
+grafana.set_stack_id(123)
+```
+
 ### `install_plugins(plugin_urls)`
 
 Install Grafana plugins from the marketplace or external URLs. This is an **accumulating helper** — multiple composables can call it, and all plugin URLs are collected, deduplicated, and set as the `GF_INSTALL_PLUGINS` environment variable.

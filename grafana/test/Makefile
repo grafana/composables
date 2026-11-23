@@ -1,4 +1,4 @@
-.PHONY: test test-integration test-integration-users test-all clean
+.PHONY: test test-integration test-integration-users test-integration-ini test-all clean
 
 test:
 	@echo "Running grafana composable unit tests..."
@@ -13,7 +13,12 @@ test-integration-users:
 	tilt -f Tiltfile.integration-users down 2>/dev/null || true
 	tilt ci -f Tiltfile.integration-users
 
-test-all: test test-integration test-integration-users
+test-integration-ini:
+	@echo "Running generated ini integration tests..."
+	tilt -f Tiltfile.integration-ini down 2>/dev/null || true
+	tilt ci -f Tiltfile.integration-ini
+
+test-all: test test-integration test-integration-users test-integration-ini
 	@echo ""
 	@echo "========================================"
 	@echo "All tests passed!"

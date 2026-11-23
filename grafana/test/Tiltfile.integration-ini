@@ -1,0 +1,101 @@
+# Live integration test for the generated Grafana ini
+# Run with: tilt ci -f Tiltfile.integration-ini (from this directory)
+#
+# Starts Grafana with settings from register_ini(), set_stack_id() and
+# register_environment(), then reads them back from /api/admin/settings.
+
+COMPOSABLES_URL = os.getenv('COMPOSABLES_URL', 'file://' + os.path.abspath(os.path.dirname(__file__) + '/../..'))
+COMPOSE_COMPOSER_URL = os.getenv('COMPOSE_COMPOSER_URL', 'https://github.com/grafana/tilt-extensions')
+COMPOSE_COMPOSER_REF = os.getenv('COMPOSE_COMPOSER_REF', 'main')
+
+if __file__ == config.main_path:
+    if COMPOSE_COMPOSER_URL.startswith('file://'):
+        v1alpha1.extension_repo(name='grafana-tilt-extensions', url=COMPOSE_COMPOSER_URL)
+    else:
+        v1alpha1.extension_repo(name='grafana-tilt-extensions', url=COMPOSE_COMPOSER_URL, ref=COMPOSE_COMPOSER_REF)
+    v1alpha1.extension(name='compose_composer', repo_name='grafana-tilt-extensions', repo_path='compose_composer')
+
+load('ext://compose_composer', 'cc_init')
+
+allow_k8s_contexts(k8s_context())
+
+def cc_export(cc):
+    grafana = cc.use('grafana', labels=['grafana'])
+
+    return cc.create(
+        'grafana-ini-integration-test',
+        os.path.dirname(__file__) + '/docker-compose.yaml',
+        labels=['test'],
+        modifications=[
+            grafana.configure_admin(username='admin', password='admin'),
+            grafana.set_stack_id(123),
+            # A section missing from defaults.ini: env vars cannot create it, so it proves the ini is read.
+            grafana.register_ini({
+                'plugin.cc-ini-test': {
+                    'from_ini': 'yes',
+                    # $__file is expanded by Grafana when it loads the ini
+                    'from_file': '$__file{/etc/grafana/cc-ini-test-value}',
+                },
+            }),
+            # List setting from ini and from env, from two callers
+            grafana.register_ini({'plugins': {'forward_host_env_vars': 'ini-app'}}),
+            grafana.register_environment({'GF_PLUGINS_FORWARD_HOST_ENV_VARS': 'env-app'}),
+            # File read through $__file above
+            {
+                'services': {'grafana': {'volumes': [
+                    os.path.dirname(__file__) + '/fixtures/cc-ini-test-value:/etc/grafana/cc-ini-test-value:ro',
+                ]}},
+                '_target': 'grafana',
+            },
+        ],
+    )
+
+if __file__ == config.main_path:
+    cc = cc_init('grafana-ini-integration-test', composables_url=COMPOSABLES_URL)
+
+    master = cc.generate_master_compose(
+        cc_export(cc),
+        cc.parse_cli_plugins(),
+    )
+
+    cc.docker_compose(master)
+
+    local_resource(
+        'verify-ini',
+        cmd='''
+set -e
+GRAFANA_URL="http://localhost:${GRAFANA_PORT:-3000}"
+AUTH="admin:admin"
+
+echo "Waiting for Grafana..."
+RETRIES=0
+until curl -sf -u "$AUTH" "$GRAFANA_URL/api/org" > /dev/null 2>&1; do
+  RETRIES=$((RETRIES + 1))
+  if [ $RETRIES -ge 60 ]; then echo "FAIL: Grafana did not become ready"; exit 1; fi
+  sleep 2
+done
+
+SETTINGS=$(curl -sf -u "$AUTH" "$GRAFANA_URL/api/admin/settings")
+
+check() {
+  ACTUAL=$(echo "$SETTINGS" | python3 -c "import sys,json; print(json.load(sys.stdin).get('$1', {}).get('$2', ''))")
+  if [ "$ACTUAL" = "$3" ]; then
+    echo "  [PASS] [$1] $2 = $3"
+  else
+    echo "  [FAIL] [$1] $2 = '$ACTUAL', expected '$3'"
+    FAILED=1
+  fi
+}
+
+FAILED=0
+check environment stack_id 123
+check plugin.cc-ini-test from_ini yes
+check plugin.cc-ini-test from_file file-value
+check plugins forward_host_env_vars env-app,ini-app
+
+if [ $FAILED -ne 0 ]; then echo "INTEGRATION TEST FAILED"; exit 1; fi
+echo "ALL INTEGRATION TESTS PASSED"
+''',
+        resource_deps=['grafana'],
+        labels=['test'],
+    )
