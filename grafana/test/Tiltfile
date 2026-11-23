@@ -358,6 +358,20 @@ def install_plugins(plugin_urls):
     }
 
 
+_LIST_SETTINGS = {
+    'GF_PLUGINS_FORWARD_HOST_ENV_VARS': ('plugins', 'forward_host_env_vars'),
+    'GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS': ('plugins', 'allow_loading_unsigned_plugins'),
+    'GF_FEATURE_TOGGLES_ENABLE': ('feature_toggles', 'enable'),
+}
+
+def _merge_csv(existing, value):
+    items = [i.strip() for i in existing.split(',') if i.strip()] if existing else []
+    for item in str(value).split(','):
+        item = item.strip()
+        if item and item not in items:
+            items.append(item)
+    return ','.join(items)
+
 def process_accumulated_modifications(all_modifications, orchestrator_dir):
     """
     Extract accumulated requirements from all modifications and generate services.
@@ -453,7 +467,10 @@ def process_accumulated_modifications(all_modifications, orchestrator_dir):
             env_dict = mod['_grafana_environment']
             if type(env_dict) == 'dict':
                 for k, v in env_dict.items():
-                    all_env_vars[k] = v
+                    if k in _LIST_SETTINGS:
+                        all_env_vars[k] = _merge_csv(all_env_vars.get(k, ''), v)
+                    else:
+                        all_env_vars[k] = v
 
     if all_env_vars:
         if 'services' in result:
@@ -1143,6 +1160,26 @@ def test_process_accumulated_register_environment_merges():
     assert_true('NODE_ENV' in env, "Should have NODE_ENV from second caller")
     print("  [PASS] test_process_accumulated_register_environment_merges")
 
+def test_process_accumulated_register_environment_list_settings_merge():
+    """Test comma-separated list settings are merged across callers, not overwritten."""
+    mods = [
+        {'_grafana_environment': {
+            'GF_PLUGINS_FORWARD_HOST_ENV_VARS': 'grafana-aigateway-app',
+            'GF_FEATURE_TOGGLES_ENABLE': 'a,b',
+        }, '_target': 'grafana'},
+        {'_grafana_environment': {
+            'GF_PLUGINS_FORWARD_HOST_ENV_VARS': 'grafana-assistant-app, grafana-aigateway-app',
+            'GF_FEATURE_TOGGLES_ENABLE': 'b,c',
+            'GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS': 'x',
+        }, '_target': 'grafana'},
+    ]
+    env = process_accumulated_modifications(mods, '/tmp')['services']['grafana']['environment']
+    assert_equals(env['GF_PLUGINS_FORWARD_HOST_ENV_VARS'], 'grafana-aigateway-app,grafana-assistant-app',
+                  "Forward env vars should merge without duplicates")
+    assert_equals(env['GF_FEATURE_TOGGLES_ENABLE'], 'a,b,c', "Feature toggles should merge")
+    assert_equals(env['GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS'], 'x', "Single value kept")
+    print("  [PASS] test_process_accumulated_register_environment_list_settings_merge")
+
 # ============================================================================
 # install_plugins Tests
 # ============================================================================
@@ -1378,6 +1415,7 @@ def run_tests():
     test_process_accumulated_register_environment()
     test_process_accumulated_register_environment_last_writer_wins()
     test_process_accumulated_register_environment_merges()
+    test_process_accumulated_register_environment_list_settings_merge()
 
     print("\n=== install_plugins Tests ===")
     test_install_plugins_returns_marker()

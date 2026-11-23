@@ -433,6 +433,23 @@ cat /certs/aggregator-config.yaml
     }
 
 
+# Comma-separated Grafana settings that several composables may each contribute to.
+# They are merged instead of last-writer-wins. Maps env var -> (ini section, ini key).
+_LIST_SETTINGS = {
+    'GF_PLUGINS_FORWARD_HOST_ENV_VARS': ('plugins', 'forward_host_env_vars'),
+    'GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS': ('plugins', 'allow_loading_unsigned_plugins'),
+    'GF_FEATURE_TOGGLES_ENABLE': ('feature_toggles', 'enable'),
+}
+
+def _merge_csv(existing, value):
+    """Internal: append the comma-separated items in value to existing, without duplicates."""
+    items = [i.strip() for i in existing.split(',') if i.strip()] if existing else []
+    for item in str(value).split(','):
+        item = item.strip()
+        if item and item not in items:
+            items.append(item)
+    return ','.join(items)
+
 def process_accumulated_modifications(all_modifications, orchestrator_dir):
     """
     Extract accumulated requirements from all modifications and generate services.
@@ -564,7 +581,10 @@ def process_accumulated_modifications(all_modifications, orchestrator_dir):
             env_dict = mod['_grafana_environment']
             if type(env_dict) == 'dict':
                 for k, v in env_dict.items():
-                    all_env_vars[k] = v  # last-writer-wins
+                    if k in _LIST_SETTINGS:
+                        all_env_vars[k] = _merge_csv(all_env_vars.get(k, ''), v)
+                    else:
+                        all_env_vars[k] = v  # last-writer-wins
 
     if all_env_vars:
         print("[grafana] Setting {} environment vars".format(len(all_env_vars)))
@@ -904,7 +924,10 @@ def register_environment(cc, env_dict):
 
     This is an accumulating helper - multiple composables can call it and all
     env dicts are merged by process_accumulated_modifications() into a single
-    environment block. Last-writer-wins for duplicate keys.
+    environment block. Last-writer-wins for duplicate keys, except for the
+    comma-separated list settings GF_PLUGINS_FORWARD_HOST_ENV_VARS,
+    GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS and GF_FEATURE_TOGGLES_ENABLE,
+    whose values are merged without duplicates.
 
     Args:
         cc: Orchestrator's cc struct (injected by compose_composer)

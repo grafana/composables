@@ -232,6 +232,8 @@ grafana.passthrough_env([
 
 Set environment variables on the Grafana container. This is an **accumulating helper** — multiple composables can call it, and all environment dicts are merged (last-writer-wins for duplicate keys).
 
+These comma-separated list settings are merged instead, without duplicates: `GF_PLUGINS_FORWARD_HOST_ENV_VARS`, `GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS` and `GF_FEATURE_TOGGLES_ENABLE`.
+
 **Parameters:**
 - `env_dict`: Dict of environment variable name to value mappings
 
