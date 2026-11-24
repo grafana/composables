@@ -6,4 +6,4 @@ unit-test:
 	@(cd test; tilt ci)
 
 integration-test:
-	@(cd test; tilt -f Tiltfile.integration ci; tilt -f Tiltfile.integration down)
+	@(cd test; rc=0; tilt -f Tiltfile.integration ci || rc=$$?; tilt -f Tiltfile.integration down; exit $$rc)
