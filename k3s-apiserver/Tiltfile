@@ -609,6 +609,7 @@ def cc_wire_when(cc):
                         # These require the proxy client certificates mounted by grafana's wire_when
                         # NOTE: compose_composer will concatenate this with existing toggles
                         'GF_FEATURE_TOGGLES_ENABLE': 'kubernetesAggregator,grafanaAPIServerEnsureKubectlAccess',
+                        'GF_GRAFANA_APISERVER_KUBERNETES_AGGREGATOR_ENABLED': 'true',
                         # Provide Kubernetes service discovery for plugins using in-cluster config
                         # (e.g., plugins with kubeconfig: cluster in their provisioning)
                         'KUBERNETES_SERVICE_HOST': 'k3s-apiserver',
