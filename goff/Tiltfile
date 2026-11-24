@@ -134,6 +134,16 @@ def process_accumulated_modifications(all_modifications, orchestrator_dir):
         else:
             print('[goff] Registered %s retriever' % r.get('kind', 'unknown'))
 
+    staging_dir = orchestrator_dir + '/.cc'
+
+    # goff exits with "no retriever available" when none is configured, so
+    # fall back to an empty flags file to keep the baseline config startable.
+    if not retrievers:
+        empty_flags_path = staging_dir + '/goff-empty-flags.yaml'
+        local('mkdir -p "' + staging_dir + '" && echo "{}" > "' + empty_flags_path + '"', quiet=True)
+        volumes.append(empty_flags_path + ':/flags/empty.yaml:ro')
+        retrievers.append({'kind': 'file', 'path': '/flags/empty.yaml'})
+
     # Build goff config YAML
     config_lines = [
         'logLevel: info',
@@ -162,7 +172,6 @@ def process_accumulated_modifications(all_modifications, orchestrator_dir):
     config_content = '\n'.join(config_lines) + '\n'
 
     # Write config to staging directory
-    staging_dir = orchestrator_dir + '/.cc'
     config_path = staging_dir + '/goff-config.yaml'
     local('mkdir -p "' + staging_dir + '"', quiet=True)
     local('cat > "' + config_path + "\" <<'EOF'\n" + config_content + 'EOF\n', quiet=True)

@@ -30,4 +30,4 @@ if __file__ == config.main_path:
         cc_export(cc),
         cc.parse_cli_plugins(),
     )
-    cc.docker_compose(master, wait=True)
+    cc.docker_compose(master)

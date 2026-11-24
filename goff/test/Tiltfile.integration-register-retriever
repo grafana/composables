@@ -1,0 +1,62 @@
+# Integration test for goff register_retriever() helper
+# Verifies that register_retriever() adds a custom retriever to the generated
+# goff config. Staged files only: services are not started, because goff loads
+# no flags when any retriever fails and this test has no live HTTP server.
+#
+# Run with: tilt ci -f Tiltfile.integration-register-retriever (from this directory)
+
+COMPOSABLES_URL = os.getenv('COMPOSABLES_URL', 'file://' + os.path.abspath(os.path.dirname(__file__) + '/../..'))
+COMPOSE_COMPOSER_URL = os.getenv('COMPOSE_COMPOSER_URL', 'https://github.com/grafana/tilt-extensions')
+COMPOSE_COMPOSER_REF = os.getenv('COMPOSE_COMPOSER_REF', 'main')
+
+if __file__ == config.main_path:
+    if COMPOSE_COMPOSER_URL.startswith('file://'):
+        v1alpha1.extension_repo(name='grafana-tilt-extensions', url=COMPOSE_COMPOSER_URL)
+    else:
+        v1alpha1.extension_repo(name='grafana-tilt-extensions', url=COMPOSE_COMPOSER_URL, ref=COMPOSE_COMPOSER_REF)
+    v1alpha1.extension(name='compose_composer', repo_name='grafana-tilt-extensions', repo_path='compose_composer')
+
+load('ext://compose_composer', 'cc_init')
+
+allow_k8s_contexts(k8s_context())
+
+def cc_export(cc):
+    goff = cc.use(name='goff', labels=['feature-flags'])
+    return cc.create(
+        'goff-retriever-test',
+        os.path.dirname(__file__) + '/docker-compose.yaml',
+        labels=['test'],
+        modifications=[
+            goff.register_flags(os.path.dirname(__file__) + '/flags/test-flags.yaml'),
+            goff.register_retriever({
+                'kind': 'http',
+                'url': 'http://nonexistent-host:9999/flags.yaml',
+                'timeout': 1000,
+            }),
+        ],
+    )
+
+if __file__ == config.main_path:
+    cc = cc_init('goff-retriever-test', composables_url=COMPOSABLES_URL)
+    cc.generate_master_compose(
+        cc_export(cc),
+        cc.parse_cli_plugins(),
+    )
+
+    def assert_contains(content, substring, description):
+        if substring not in content:
+            fail("INTEGRATION TEST FAILED: " + description + "\n  Expected to find: " + repr(substring))
+        print("  [PASS] " + description)
+
+    generated_config = str(read_file(os.path.dirname(__file__) + '/.cc/goff-config.yaml'))
+    assert_contains(generated_config, 'kind: "file"', "generated config has file retriever")
+    assert_contains(generated_config, 'kind: "http"', "generated config has HTTP retriever")
+    assert_contains(generated_config, '"http://nonexistent-host:9999/flags.yaml"', "generated config has HTTP retriever URL")
+    assert_contains(generated_config, "timeout: 1000", "generated config has HTTP retriever timeout")
+    assert_contains(generated_config, "startWithRetrieverError: true", "generated config has startWithRetrieverError")
+    if generated_config.find('kind: "file"') > generated_config.find('kind: "http"'):
+        fail("INTEGRATION TEST FAILED: custom retrievers must come after file retrievers")
+    print("  [PASS] custom retriever comes after file retriever")
+
+    # Dummy resource to satisfy tilt ci
+    local_resource('integration-tests', cmd='echo "Integration tests completed"')
