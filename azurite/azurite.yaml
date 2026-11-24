@@ -13,7 +13,7 @@ services:
     volumes:
       - azurite-data:/data
     healthcheck:
-      test: ["CMD", "nc", "-z", "localhost", "10000"]
+      test: ["CMD", "nc", "-z", "127.0.0.1", "10000"]  # localhost resolves to ::1, Azurite listens on IPv4 only
       interval: 10s
       timeout: 5s
       retries: 5
